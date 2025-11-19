@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Env
+.env
+.env.*
+*.env
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Poetry
+poetry.lock
+# (Optional — some teams commit this. Up to you.)
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE configs (optional)
+.vscode/
+.idea/
+
+# Local files
+*.log
+
+# Temporary app files
+tmp/
