@@ -32,3 +32,5 @@ Thumbs.db
 
 # Temporary app files
 tmp/
+
+.db
