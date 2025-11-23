@@ -29,7 +29,7 @@ async def upload_to_s3(file: UploadFile = File(...)):
         temp_path = tmp.name
 
     # Upload to S3
-    s3_url = upload_file(temp_path, file.filename)
+    s3_url = upload_bytes(temp_path, file.filename)
 
     return {
         "filename": file.filename,
