@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, JSON, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.db.session import Base
+from avanamy.db.database import Base
 
 class ApiSpec(Base):
     __tablename__ = "api_specs"

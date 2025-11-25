@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, JSON, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from app.db.session import Base
+from avanamy.db.database import Base
 
 class GenerationJob(Base):
     __tablename__ = "generation_jobs"
