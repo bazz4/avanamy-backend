@@ -23,17 +23,14 @@ async def upload_to_s3(file: UploadFile = File(...)):
     """
     Accepts a file upload and stores it in S3.
     """
+    # Read file contents as bytes
+    contents = await file.read()
 
-    # Save the uploaded file temporarily
-    with tempfile.NamedTemporaryFile(delete=False) as tmp:
-        contents = await file.read()
-        tmp.write(contents)
-        temp_path = tmp.name
-
-    # Upload to S3
-    s3_url = upload_bytes(temp_path, file.filename)
+    # Build a simple S3 key and upload bytes; upload_bytes returns (key, s3_url)
+    key = f"uploads/{file.filename}"
+    _, s3_url = upload_bytes(key, contents, content_type=getattr(file, "content_type", None))
 
     return {
         "filename": file.filename,
-        "stored_at": s3_url
+        "stored_at": s3_url,
     }
