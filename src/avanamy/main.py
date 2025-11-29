@@ -3,6 +3,7 @@ load_dotenv()  # <--- THIS LOADS .env
 
 from fastapi import FastAPI, UploadFile, File
 from avanamy.api.routes import schemas  # package import
+from avanamy.api.routes.api_specs import router as api_specs_router
 from avanamy.services.s3 import upload_bytes
 import tempfile
 
@@ -10,6 +11,7 @@ import tempfile
 app = FastAPI(debug=True)
 
 app.include_router(schemas.router, prefix="/schemas", tags=["Schemas"])
+app.include_router(api_specs_router) 
 
 @app.get("/health")
 def health_check():
