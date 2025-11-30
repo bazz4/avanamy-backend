@@ -6,14 +6,26 @@ from avanamy.api.routes import schemas  # package import
 from avanamy.api.routes.api_specs import router as api_specs_router
 from avanamy.api.routes.docs import router as docs_router
 from avanamy.services.s3 import upload_bytes
+from avanamy.logging_config import configure_logging
+from prometheus_fastapi_instrumentator import Instrumentator
+from avanamy.tracing import configure_tracing
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 import tempfile
 
+configure_logging()
+configure_tracing()
 
 app = FastAPI(debug=True)
 
 app.include_router(schemas.router, prefix="/schemas", tags=["Schemas"])
 app.include_router(api_specs_router) 
 app.include_router(docs_router)
+
+# Instrument FastAPI for tracing
+FastAPIInstrumentor.instrument_app(app)
+
+# Add Prometheus instrumentation
+Instrumentator().instrument(app).expose(app)
 
 @app.get("/health")
 def health_check():

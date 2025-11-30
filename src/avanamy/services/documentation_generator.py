@@ -2,373 +2,420 @@
 
 from __future__ import annotations
 from typing import Any, Dict, List
+import json
 
+
+# ============================================================
+#  MAIN ENTRY POINT
+# ============================================================
 
 def generate_markdown_from_normalized_spec(spec: Dict[str, Any]) -> str:
     """
-    Generate Stripe-style API documentation in Markdown from a normalized spec.
-
-    This function assumes:
-      - Keys have been lowercased by normalize_api_spec
-      - For OpenAPI specs:
-          - top-level 'info', 'paths', 'components', 'webhooks' etc. may exist
-
-    If we can't detect a typical OpenAPI shape, we fall back to a generic dump.
+    Generate polished Markdown documentation based on a normalized
+    OpenAPI-like schema. Produces Stripe-quality structure:
+    - Table of contents
+    - Endpoint groups (via tags)
+    - Cross-links
+    - Multi-language examples
+    - Try-it placeholders
     """
-    lines: List[str] = []
 
     if "paths" not in spec:
         return _generate_generic_markdown(spec)
 
-    _add_overview_section(lines, spec)
-    _add_authentication_section(lines, spec)
-    _add_errors_section(lines, spec)
+    lines: List[str] = []
+
+    _add_overview(lines, spec)
+    _add_table_of_contents(lines, spec)
+    _add_auth_section(lines, spec)
     _add_models_section(lines, spec)
-    _add_endpoints_section(lines, spec)
+    _add_endpoint_groups(lines, spec)
     _add_webhooks_section(lines, spec)
 
     return "\n".join(lines).strip() + "\n"
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# ============================================================
+#  TABLE OF CONTENTS
+# ============================================================
 
-def _add_overview_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    info = spec.get("info", {}) or {}
-    title = info.get("title") or "API Documentation"
+def _add_table_of_contents(lines: List[str], spec: Dict[str, Any]):
+    lines.append("## Table of Contents\n")
+
+    lines.append("- [Overview](#overview)")
+    lines.append("- [Authentication](#authentication)")
+
+    if "components" in spec and spec["components"].get("schemas"):
+        lines.append("- [Models](#models)")
+
+    # Add TOC entries for groups and endpoints
+    tag_map = _group_paths_by_tag(spec)
+    for tag in tag_map:
+        anchor = tag.lower().replace(" ", "-")
+        lines.append(f"- [{tag}](#{anchor})")
+
+        for ep in tag_map[tag]:
+            method = ep["method"]
+            path = ep["path"]
+            anchor = f"{method.lower()}-{path.strip('/').replace('/', '-')}"
+            lines.append(f"  - `{method} {path}` → [{path}](#{anchor})")
+
+    # Webhooks
+    if spec.get("webhooks") or spec.get("x-webhooks"):
+        lines.append("- [Webhooks](#webhooks)")
+
+    lines.append("\n---\n")
+
+
+# ============================================================
+#  OVERVIEW
+# ============================================================
+
+def _add_overview(lines: List[str], spec: Dict[str, Any]):
+    info = spec.get("info", {})
+    title = info.get("title", "API Documentation")
     version = info.get("version")
     description = info.get("description")
 
     lines.append(f"# {title}")
     if version:
-        lines.append(f"_Version: {version}_")
-    lines.append("")
-
+        lines.append(f"_Version: {version}_\n")
     if description:
-        lines.append(description)
-        lines.append("")
+        lines.append(f"{description}\n")
 
-    servers = spec.get("servers", []) or []
+    servers = spec.get("servers", [])
     if servers:
-        lines.append("## Base URLs")
-        lines.append("")
+        lines.append("## Base URLs\n")
         lines.append("| Environment | URL |")
         lines.append("|------------|-----|")
         for s in servers:
-            url = s.get("url") or ""
-            desc = s.get("description") or "Default"
+            desc = s.get("description", "Default")
+            url = s.get("url", "")
             lines.append(f"| {desc} | `{url}` |")
         lines.append("")
 
 
-def _add_authentication_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    components = spec.get("components", {}) or {}
-    security_schemes = components.get("securityschemes", {}) or {}
-    if not security_schemes:
+# ============================================================
+#  AUTHENTICATION
+# ============================================================
+
+def _add_auth_section(lines: List[str], spec: Dict[str, Any]):
+    components = spec.get("components", {})
+    schemes = components.get("securitySchemes") or components.get("securityschemes")
+
+    lines.append("## Authentication\n")
+
+    if not schemes:
+        lines.append("_This API does not define security requirements._\n")
         return
 
-    lines.append("## Authentication")
-    lines.append("")
-    lines.append(
-        "This API uses the following authentication methods. "
-        "Include the appropriate credentials with each request."
-    )
-    lines.append("")
-
-    for name, scheme in security_schemes.items():
-        stype = scheme.get("type") or "unknown"
-        desc = scheme.get("description") or ""
-        lines.append(f"### {name}")
-        lines.append("")
-        lines.append(f"Type: `{stype}`")
+    for name, scheme in schemes.items():
+        lines.append(f"### {name}\n")
+        stype = scheme.get("type", "unknown")
+        lines.append(f"- **Type:** `{stype}`")
         if scheme.get("scheme"):
-            lines.append(f"Scheme: `{scheme.get('scheme')}`")
-        if scheme.get("bearerformat"):
-            lines.append(f"Bearer format: `{scheme.get('bearerformat')}`")
+            lines.append(f"- **Scheme:** `{scheme['scheme']}`")
+        if scheme.get("bearerFormat"):
+            lines.append(f"- **Bearer Format:** `{scheme['bearerFormat']}`")
         if scheme.get("in"):
-            lines.append(f"In: `{scheme.get('in')}`")
+            lines.append(f"- **In:** `{scheme['in']}`")
         if scheme.get("name"):
-            lines.append(f"Header/parameter: `{scheme.get('name')}`")
-        if desc:
-            lines.append("")
-            lines.append(desc)
+            lines.append(f"- **Parameter:** `{scheme['name']}`")
+        if scheme.get("description"):
+            lines.append(f"\n{scheme['description']}")
         lines.append("")
 
 
-def _add_errors_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    # For now we derive errors from responses across all paths.
-    paths = spec.get("paths", {}) or {}
+# ============================================================
+#  MODELS
+# ============================================================
 
-    collected: Dict[str, str] = {}
-    for path, operations in paths.items():
-        if not isinstance(operations, dict):
-            continue
-        for method, op in operations.items():
-            if not isinstance(op, dict):
-                continue
-            responses = op.get("responses", {}) or {}
-            for status_code, detail in responses.items():
-                if not isinstance(detail, dict):
-                    continue
-                desc = detail.get("description") or ""
-                existing = collected.get(status_code)
-                # Prefer the longest description we see
-                if desc and (existing is None or len(desc) > len(existing)):
-                    collected[status_code] = desc
+def _add_models_section(lines: List[str], spec: Dict[str, Any]):
+    components = spec.get("components", {})
+    schemas = components.get("schemas", {})
 
-    if not collected:
-        return
-
-    lines.append("## Error Responses")
-    lines.append("")
-    lines.append("| Status Code | Description |")
-    lines.append("|-------------|-------------|")
-    for status, desc in sorted(collected.items(), key=lambda x: x[0]):
-        safe_desc = desc.replace("\n", " ").strip()
-        lines.append(f"| `{status}` | {safe_desc} |")
-    lines.append("")
-
-
-def _add_models_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    components = spec.get("components", {}) or {}
-    schemas = components.get("schemas", {}) or {}
     if not schemas:
         return
 
-    lines.append("## Models")
-    lines.append("")
-    lines.append(
-        "These are the primary data models used in request and response payloads."
-    )
-    lines.append("")
+    lines.append("## Models\n")
 
     for model_name, model in schemas.items():
-        lines.append(f"### {model_name}")
-        lines.append("")
+        # preserve casing of original OpenAPI definition
+        lines.append(f"### {model_name}\n")
 
         desc = model.get("description")
         if desc:
-            lines.append(desc)
-            lines.append("")
+            lines.append(desc + "\n")
 
-        props = model.get("properties", {}) or {}
-        required = set(model.get("required") or [])
+        props = model.get("properties", {})
+        required = set(model.get("required", []))
 
         if props:
             lines.append("| Field | Type | Required | Description |")
             lines.append("|-------|------|----------|-------------|")
             for field_name, field in props.items():
-                ftype = field.get("type") or field.get("format") or "object"
+                ftype = field.get("type", field.get("format", "object"))
                 is_req = "yes" if field_name in required else "no"
-                fdesc = (field.get("description") or "").replace("\n", " ").strip()
+                fdesc = field.get("description", "").replace("\n", " ")
                 lines.append(
                     f"| `{field_name}` | `{ftype}` | {is_req} | {fdesc} |"
                 )
-            lines.append("")
         else:
-            lines.append("_No explicit properties defined._")
-            lines.append("")
+            lines.append("_No properties defined._")
+
+        lines.append("")
 
 
-def _add_endpoints_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    paths = spec.get("paths", {}) or {}
-    if not paths:
-        return
+# ============================================================
+#  ENDPOINTS BY GROUP (TAGS)
+# ============================================================
 
-    # Quick index table
-    lines.append("## Endpoints")
-    lines.append("")
-    lines.append("| Method | Path | Summary |")
-    lines.append("|--------|------|---------|")
+def _group_paths_by_tag(spec: Dict[str, Any]):
+    paths = spec.get("paths", {})
+    tag_map = {}
 
-    flat_endpoints: List[Dict[str, Any]] = []
-
-    for path, operations in paths.items():
-        if not isinstance(operations, dict):
-            continue
-
-        for method, op in operations.items():
+    for path, ops in paths.items():
+        for method, op in ops.items():
             if not isinstance(op, dict):
                 continue
-
-            http_method = method.upper()
-            summary = op.get("summary") or op.get("operationid") or ""
-            flat_endpoints.append(
-                {
-                    "method": http_method,
+            tags = op.get("tags", ["General"])
+            for tag in tags:
+                tag_map.setdefault(tag, []).append({
                     "path": path,
-                    "summary": summary,
+                    "method": method.upper(),
                     "op": op,
-                }
+                })
+    return tag_map
+
+
+def _add_endpoint_groups(lines: List[str], spec: Dict[str, Any]):
+    tag_map = _group_paths_by_tag(spec)
+
+    for tag, endpoints in tag_map.items():
+        lines.append(f"## {tag}\n")
+
+        # Summary table
+        lines.append("| Method | Path | Summary |")
+        lines.append("|--------|------|---------|")
+
+        for ep in endpoints:
+            summary = ep["op"].get("summary", "")
+            lines.append(
+                f"| `{ep['method']}` | `{ep['path']}` | {summary} |"
             )
 
-    for ep in flat_endpoints:
-        summary = ep["summary"].replace("\n", " ").strip()
-        lines.append(
-            f"| `{ep['method']}` | `{ep['path']}` | {summary or ''} |"
-        )
-    lines.append("")
+        lines.append("")
 
-    # Detailed sections per endpoint
-    for ep in flat_endpoints:
-        _add_single_endpoint_section(lines, ep["path"], ep["method"], ep["op"])
+        # Detailed endpoint section
+        for ep in endpoints:
+            _add_endpoint_detail(lines, ep)
 
 
-def _add_single_endpoint_section(
-    lines: List[str], path: str, method: str, op: Dict[str, Any]
-) -> None:
+# ============================================================
+#  ENDPOINT DETAIL
+# ============================================================
+
+def _add_endpoint_detail(lines: List[str], ep: Dict[str, Any]):
+    path = ep["path"]
+    method = ep["method"]
+    op = ep["op"]
+
+    anchor = f"{method.lower()}-{path.strip('/').replace('/', '-')}"
     lines.append(f"### {method} {path}")
+    lines.append(f'<a id="{anchor}"></a>\n')
+
+    # summary + description
+    if op.get("summary"):
+        lines.append(f"**Summary:** {op['summary']}\n")
+
+    if op.get("description"):
+        lines.append(op["description"] + "\n")
+
+    # request examples
+    lines.append("#### Try It\n")
+    lines.append("This block lets developers quickly see how a request might be made.\n")
+    lines.append("```bash\ncurl -X {method} {path}\n```".replace("{method}", method).replace("{path}", path))
     lines.append("")
 
-    summary = op.get("summary")
-    description = op.get("description")
-
-    if summary:
-        lines.append(f"**Summary:** {summary}")
-        lines.append("")
-    if description:
-        lines.append(description)
-        lines.append("")
+    # Multi-language examples
+    _add_language_examples(lines, method, path)
 
     # Parameters
-    params = op.get("parameters", []) or []
+    params = op.get("parameters", [])
     if params:
-        lines.append("#### Parameters")
-        lines.append("")
+        lines.append("#### Parameters\n")
         lines.append("| Name | In | Type | Required | Description |")
         lines.append("|------|----|------|----------|-------------|")
-        for p in params:
-            name = p.get("name") or ""
-            loc = p.get("in") or ""
-            required = "yes" if p.get("required") else "no"
-            schema = p.get("schema") or {}
-            ptype = schema.get("type") or schema.get("format") or "string"
-            desc = (p.get("description") or "").replace("\n", " ").strip()
+        for param in params:
+            pname = param.get("name", "")
+            loc = param.get("in", "")
+            required = "yes" if param.get("required") else "no"
+            schema = param.get("schema", {})
+            ptype = schema.get("type", schema.get("format", "string"))
+            desc = param.get("description", "").replace("\n", " ")
             lines.append(
-                f"| `{name}` | `{loc}` | `{ptype}` | {required} | {desc} |"
+                f"| `{pname}` | `{loc}` | `{ptype}` | {required} | {desc} |"
             )
         lines.append("")
 
     # Request body
-    request_body = op.get("requestbody") or {}
-    content = request_body.get("content") or {}
-    if content:
-        lines.append("#### Request Body")
-        lines.append("")
-        for mime, media in content.items():
-            lines.append(f"- Content type: `{mime}`")
-            schema = media.get("schema") or {}
-            example = media.get("example") or media.get("examples")
-            if schema:
-                lines.append("")
-                lines.append("Schema:")
-                lines.append("")
-                lines.append("```json")
-                lines.append(_safe_json_example(schema))
-                lines.append("```")
-            if example:
-                lines.append("")
-                lines.append("Example:")
-                lines.append("")
-                lines.append("```json")
-                lines.append(_safe_json_example(example))
-                lines.append("```")
-        lines.append("")
+    _add_request_body(lines, op)
 
     # Responses
-    responses = op.get("responses") or {}
-    if responses:
-        lines.append("#### Responses")
-        lines.append("")
-        for status_code, resp in responses.items():
-            if not isinstance(resp, dict):
-                continue
-            desc = resp.get("description") or ""
-            lines.append(f"- **{status_code}** – {desc}")
-            content = resp.get("content") or {}
-            # Prefer application/json
-            media = content.get("application/json") or next(
-                iter(content.values()), None
-            )
-            if media:
-                example = media.get("example") or media.get("examples")
-                schema = media.get("schema")
-                if example:
-                    lines.append("")
-                    lines.append("  Example:")
-                    lines.append("")
-                    lines.append("  ```json")
-                    for line in _safe_json_example(example).splitlines():
-                        lines.append(f"  {line}")
-                    lines.append("  ```")
-                elif schema:
-                    lines.append("")
-                    lines.append("  Schema:")
-                    lines.append("")
-                    lines.append("  ```json")
-                    for line in _safe_json_example(schema).splitlines():
-                        lines.append(f"  {line}")
-                    lines.append("  ```")
-            lines.append("")
+    _add_responses(lines, op)
 
 
-def _add_webhooks_section(lines: List[str], spec: Dict[str, Any]) -> None:
-    # OpenAPI 3.1+ can have `webhooks` top-level; vendors sometimes use `x-webhooks`.
-    webhooks = spec.get("webhooks") or spec.get("x-webhooks")
-    if not webhooks or not isinstance(webhooks, dict):
+# ============================================================
+#  MULTI-LANGUAGE EXAMPLES
+# ============================================================
+
+def _add_language_examples(lines: List[str], method: str, path: str):
+    url = path
+    lines.append("#### Examples\n")
+
+    # Curl
+    lines.append("**cURL**")
+    lines.append("```bash")
+    lines.append(f"curl -X {method} \"{url}\"")
+    lines.append("```")
+
+    # Python
+    lines.append("\n**Python**")
+    lines.append("```python")
+    lines.append("import requests")
+    lines.append(f'response = requests.{method.lower()}("{url}")')
+    lines.append("print(response.json())")
+    lines.append("```")
+
+    # Node
+    lines.append("\n**Node.js**")
+    lines.append("```javascript")
+    lines.append("import fetch from 'node-fetch';")
+    lines.append(f"const res = await fetch('{url}', {{ method: '{method}' }});")
+    lines.append("console.log(await res.json());")
+    lines.append("```")
+
+    # C#
+    lines.append("\n**C#**")
+    lines.append("```csharp")
+    lines.append("using var client = new HttpClient();")
+    lines.append(
+        f'var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.{method.capitalize()}, "{url}"));'
+    )
+    lines.append("```")
+
+    lines.append("")
+
+
+# ============================================================
+# REQUEST BODY + RESPONSES
+# ============================================================
+
+def _add_request_body(lines: List[str], op: Dict[str, Any]):
+    request_body = op.get("requestBody") or op.get("requestbody")
+    if not request_body:
         return
 
-    lines.append("## Webhooks")
-    lines.append("")
-    for event_name, operations in webhooks.items():
-        lines.append(f"### {event_name}")
+    content = request_body.get("content", {})
+    if not content:
+        return
+
+    lines.append("#### Request Body\n")
+
+    for mime, media in content.items():
+        lines.append(f"- **Content Type:** `{mime}`")
+
+        schema = media.get("schema")
+        if schema:
+            lines.append("\nSchema:\n")
+            lines.append("```json")
+            lines.append(_safe_json(schema))
+            lines.append("```")
+
+        example = media.get("example")
+        if example:
+            lines.append("\nExample:\n")
+            lines.append("```json")
+            lines.append(_safe_json(example))
+            lines.append("```")
+
         lines.append("")
-        if not isinstance(operations, dict):
-            continue
-        for method, op in operations.items():
-            if not isinstance(op, dict):
-                continue
-            http_method = method.upper()
-            summary = op.get("summary") or ""
-            desc = op.get("description") or ""
-            lines.append(f"**{http_method}**")
-            if summary:
-                lines.append("")
-                lines.append(f"_Summary_: {summary}")
-            if desc:
-                lines.append("")
-                lines.append(desc)
+
+
+def _add_responses(lines: List[str], op: Dict[str, Any]):
+    responses = op.get("responses", {})
+    if not responses:
+        return
+
+    lines.append("#### Responses\n")
+
+    for status, detail in responses.items():
+        desc = detail.get("description", "")
+        lines.append(f"- **{status}** – {desc}\n")
+
+        content = detail.get("content", {})
+        media = content.get("application/json") or next(iter(content.values()), None)
+
+        if media:
+            example = media.get("example")
+            schema = media.get("schema")
+
+            if example:
+                lines.append("Example:\n")
+                lines.append("```json")
+                lines.append(_safe_json(example))
+                lines.append("```")
+
+            elif schema:
+                lines.append("Schema:\n")
+                lines.append("```json")
+                lines.append(_safe_json(schema))
+                lines.append("```")
+
+        lines.append("")
+
+
+# ============================================================
+# WEBHOOKS
+# ============================================================
+
+def _add_webhooks_section(lines: List[str], spec: Dict[str, Any]):
+    wh = spec.get("webhooks") or spec.get("x-webhooks")
+    if not wh:
+        return
+
+    lines.append("## Webhooks\n")
+
+    for name, ops in wh.items():
+        lines.append(f"### {name}\n")
+
+        for method, op in ops.items():
+            lines.append(f"**{method.upper()}**")
+
+            if op.get("summary"):
+                lines.append(f"_Summary_: {op['summary']}")
+            if op.get("description"):
+                lines.append(op["description"])
             lines.append("")
 
 
-def _safe_json_example(obj: Any) -> str:
-    """
-    Best-effort pretty "JSON-like" serialization for docs.
-    We avoid importing json here to keep it simple if the structure
-    has already been normalized to strings.
-    """
+# ============================================================
+# FALLBACK
+# ============================================================
+
+def _safe_json(obj: Any) -> str:
     try:
-        import json
         return json.dumps(obj, indent=2, ensure_ascii=False)
-    except Exception:
+    except:
         return str(obj)
 
 
 def _generate_generic_markdown(spec: Dict[str, Any]) -> str:
-    """
-    Fallback for non-OpenAPI-like specs: just dump the normalized dict.
-    """
-    lines: List[str] = []
-    lines.append("# API Documentation")
-    lines.append("")
-    lines.append(
-        "_Note: The uploaded spec does not look like a standard OpenAPI document. "
-        "Showing a generic view of the normalized structure._"
+    return (
+        "# API Documentation\n\n"
+        "_This specification is not in a recognized OpenAPI-like format. "
+        "Showing normalized JSON instead._\n\n"
+        "```json\n"
+        f"{_safe_json(spec)}\n"
+        "```\n"
     )
-    lines.append("")
-    lines.append("```json")
-    lines.append(_safe_json_example(spec))
-    lines.append("```")
-    lines.append("")
-    return "\n".join(lines)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Optional
 import json
-
+import logging 
 from sqlalchemy.orm import Session
 
 from avanamy.models.api_spec import ApiSpec
@@ -14,10 +14,13 @@ from avanamy.services.s3 import upload_bytes
 from avanamy.services.documentation_generator import (
     generate_markdown_from_normalized_spec,
 )
-
+from avanamy.metrics import markdown_generation_total
+from opentelemetry import trace
 
 ARTIFACT_TYPE_API_MARKDOWN = "api_markdown"
 
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 def generate_and_store_markdown_for_spec(
     db: Session,
@@ -29,6 +32,21 @@ def generate_and_store_markdown_for_spec(
     Returns the S3 path if successful, or None if there is no parsed_schema
     or if JSON decoding fails.
     """
+    logger.info("Starting markdown generation: spec_id=%s", spec.id)
+
+    with tracer.start_as_current_span("generate_docs_for_spec") as span:
+        span.set_attribute("spec.id", spec.id)
+        span.set_attribute("spec.name", spec.name or "")
+        span.set_attribute("spec.version", spec.version or "")
+
+        if not spec.parsed_schema:
+            logger.warning(
+                "Spec %s has no parsed_schema — skipping markdown generation.",
+                spec.id,
+            )
+            span.set_attribute("docs.skipped_reason", "missing_parsed_schema")
+            return None
+
     if not spec.parsed_schema:
         # Nothing to generate docs from
         return None
@@ -51,6 +69,7 @@ def generate_and_store_markdown_for_spec(
 
     _, s3_url = upload_bytes(key, markdown.encode("utf-8"), "text/markdown")
 
+
     repo = DocumentationArtifactRepository()
     repo.create(
         db,
@@ -58,5 +77,5 @@ def generate_and_store_markdown_for_spec(
         artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
         s3_path=key,  # store S3 key; or s3_url if you prefer
     )
-
+    markdown_generation_total.inc()
     return key
