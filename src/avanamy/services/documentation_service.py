@@ -34,7 +34,15 @@ def generate_and_store_markdown_for_spec(
         return None
 
     try:
-        schema = json.loads(spec.parsed_schema)
+        raw = spec.parsed_schema
+
+        if raw is None:
+            return None
+
+        if isinstance(raw, dict):
+            schema = raw
+        else:
+            schema = json.loads(raw)
     except json.JSONDecodeError:
         return None
 
