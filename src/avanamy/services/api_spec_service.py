@@ -11,6 +11,10 @@ from avanamy.repositories.api_spec_repository import ApiSpecRepository
 from avanamy.services.s3 import upload_bytes
 from avanamy.services.api_spec_parser import parse_api_spec
 from avanamy.services.api_spec_normalizer import normalize_api_spec
+from avanamy.services.documentation_service import generate_and_store_markdown_for_spec
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def store_api_spec_file(
@@ -68,4 +72,12 @@ def store_api_spec_file(
         parsed_schema=parsed_json,
     )
 
+    # ------------------------------------------------------------------------
+    # 5. Generate documentation artifact (best-effort)
+    # ------------------------------------------------------------------------
+    try:
+        generate_and_store_markdown_for_spec(db, spec)
+    except Exception:
+        # We never want docs generation to block spec ingestion
+        logger.exception("Failed to generate documentation artifact for spec %s", spec.id)
     return spec
