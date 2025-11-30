@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ router = APIRouter(
 )
 
 
-# --- DB dependency (local to this router) ------------------------------------ #
+# --- DB dependency -----------------------------------------------------------
 
 def get_db():
     db = SessionLocal()
@@ -28,7 +28,7 @@ def get_db():
         db.close()
 
 
-# --- Pydantic response models ------------------------------------------------ #
+# --- Pydantic models ---------------------------------------------------------
 
 class ApiSpecOut(BaseModel):
     id: int
@@ -36,12 +36,15 @@ class ApiSpecOut(BaseModel):
     version: Optional[str] = None
     description: Optional[str] = None
     original_file_s3_path: str
+    parsed_schema: Dict[str, Any] | None = None
 
     class Config:
-        from_attributes = True  # Pydantic v2 (allows ORM objects)
+        from_attributes = True
 
 
-# --- Routes ------------------------------------------------------------------ #
+# -----------------------------------------------------------------------------
+#  🚨 IMPORTANT: STATIC ROUTES MUST COME *BEFORE* DYNAMIC ONES
+# -----------------------------------------------------------------------------
 
 @router.post("/upload", response_model=ApiSpecOut)
 async def upload_api_spec(
@@ -52,14 +55,10 @@ async def upload_api_spec(
     db: Session = Depends(get_db),
 ):
     """
-    Upload an API spec file, store it in S3, and create a DB record.
-
-    - Accepts a multipart/form-data file
-    - Optional name/version/description override the defaults
+    Upload an API spec file and store in S3 + DB.
     """
     contents = await file.read()
 
-    # (Later) we can inspect content_type and parse OpenAPI/JSON/YAML here
     spec = store_api_spec_file(
         db=db,
         file_bytes=contents,
@@ -68,7 +67,7 @@ async def upload_api_spec(
         name=name,
         version=version,
         description=description,
-        parsed_schema=None,  # placeholder for future parsing
+        parsed_schema=None,
     )
 
     return spec
@@ -81,6 +80,10 @@ def list_api_specs(db: Session = Depends(get_db)):
     """
     return ApiSpecRepository.list_all(db)
 
+
+# -----------------------------------------------------------------------------
+#  MUST COME LAST — dynamic path
+# -----------------------------------------------------------------------------
 
 @router.get("/{spec_id}", response_model=ApiSpecOut)
 def get_api_spec(spec_id: int, db: Session = Depends(get_db)):

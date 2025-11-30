@@ -1,68 +1,67 @@
 # src/avanamy/services/api_spec_parser.py
 
+from __future__ import annotations
 import json
 import yaml
 import xml.etree.ElementTree as ET
+from typing import Any, Dict
 
 from avanamy.utils.file_utils import detect_file_type
 
-"""This file will:
 
-take (filename, raw_bytes)
-
-detect file type (using your existing file_utils)
-
-parse into Python dict (normalized)
-
-return a structured payload ready for DB"""
-
-def parse_api_spec(filename: str, raw_bytes: bytes) -> dict:
+def parse_api_spec(filename: str, raw_bytes: bytes) -> Dict[str, Any]:
     """
-    Parses raw API spec bytes (JSON, YAML, XML) and returns a normalized dict.
-    This dict will be stored in ApiSpec.parsed_schema.
+    Parse raw API spec into a Python dict.
+    Supports JSON, YAML, and XML.
     """
 
     ftype = detect_file_type(filename, raw_bytes)
-
     text = raw_bytes.decode("utf-8")
 
+    # --- JSON ---
     if ftype == "json":
-        return json.loads(text)
+        obj = json.loads(text)
+        if not isinstance(obj, dict):
+            raise ValueError("JSON root must be an object")
+        return obj
 
+    # --- YAML ---
     if ftype == "yaml":
-        return yaml.safe_load(text)
+        obj = yaml.safe_load(text)
+        if not isinstance(obj, dict):
+            raise ValueError("YAML root must be a mapping")
+        return obj
 
+    # --- XML ---
     if ftype == "xml":
-        # Convert XML → dict
         root = ET.fromstring(text)
         return _xml_to_dict(root)
 
     raise ValueError(f"Unsupported or unknown spec format: {ftype}")
 
 
-def _xml_to_dict(elem: ET.Element) -> dict:
+def _xml_to_dict(elem: ET.Element) -> Dict[str, Any]:
     """
-    Minimal, generic XML → dict converter.
-    Good enough for early versions of API spec ingestion.
+    Convert XML Element into a nested dict.
+    Repeated tags become lists.
+    Leaf text is preserved.
     """
-    node = {}
+    node: Dict[str, Any] = {}
 
-    # Attributes become keys prefixed with '@'
+    # Attributes (rare for API specs)
     for k, v in elem.attrib.items():
         node[f"@{k}"] = v
 
-    # Child elements
+    # Children
     children = list(elem)
     if children:
         for child in children:
-            child_dict = _xml_to_dict(child)
-            node.setdefault(child.tag, [])
+            child_value = _xml_to_dict(child)
+            if child.tag not in node:
+                node[child.tag] = []
+            node[child.tag].append(child_value)
+        return node
 
-            # If we see same tag multiple times, store as list
-            node[child.tag].append(child_dict)
-    else:
-        # Leaf node
-        if elem.text and elem.text.strip():
-            return elem.text.strip()
-
-    return node
+    # Leaf
+    text = elem.text.strip() if elem.text else ""
+    return text
