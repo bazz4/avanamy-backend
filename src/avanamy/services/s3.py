@@ -34,3 +34,20 @@ def upload_bytes(key: str, data: bytes, content_type: str = None) -> Tuple[str, 
     except ClientError as e:
         # re-raise so caller can return 5xx or handle
         raise
+
+def download_bytes(key: str) -> bytes:
+    """
+    Download raw bytes from S3 for the given key.
+    """
+    if not AWS_BUCKET:
+        raise RuntimeError("AWS_S3_BUCKET is not set in environment variables")
+
+    try:
+        resp = _s3_client.get_object(Bucket=AWS_BUCKET, Key=key)
+        body = resp.get("Body")
+        if body is None:
+            return b""
+        return body.read()
+    except ClientError:
+        # Let caller decide whether to surface 404/5xx
+        raise
