@@ -3,6 +3,11 @@
 from sqlalchemy.orm import Session
 from avanamy.models.api_spec import ApiSpec
 import json
+import logging
+from opentelemetry import trace
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 class ApiSpecRepository:
 
@@ -28,9 +33,18 @@ class ApiSpecRepository:
             original_file_s3_path=original_file_s3_path,
             parsed_schema=schema_to_store,
         )
-        db.add(spec)
-        db.commit()
-        db.refresh(spec)
+
+        with tracer.start_as_current_span("db.create_api_spec") as span:
+            span.set_attribute("spec.name", name)
+            try:
+                db.add(spec)
+                db.commit()
+                db.refresh(spec)
+            except Exception:
+                logger.error("DB create failed for spec=%s", name)
+                raise
+
+        logger.info("Created ApiSpec: id=%s name=%s", spec.id, spec.name)
         return spec
 
     @staticmethod

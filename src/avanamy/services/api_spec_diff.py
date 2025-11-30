@@ -10,6 +10,11 @@ from typing import Any, List
 from sqlalchemy.orm import Session
 
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
+import logging
+from opentelemetry import trace
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class ChangeType(str, Enum):
@@ -132,9 +137,13 @@ def diff_dicts(old: Any, new: Any) -> List[SpecDiff]:
 
     Returns a list of SpecDiff objects describing what changed.
     """
-    diffs: List[SpecDiff] = []
-    _diff_values(old, new, path="", diffs=diffs)
-    return diffs
+    with tracer.start_as_current_span("service.diff_dicts") as span:
+        span.set_attribute("old.type", type(old).__name__)
+        span.set_attribute("new.type", type(new).__name__)
+        diffs: List[SpecDiff] = []
+        _diff_values(old, new, path="", diffs=diffs)
+        logger.debug("Computed diffs: count=%d", len(diffs))
+        return diffs
 
 
 def diff_specs_by_id(db: Session, base_id: int, compare_id: int) -> List[SpecDiff]:
@@ -144,15 +153,21 @@ def diff_specs_by_id(db: Session, base_id: int, compare_id: int) -> List[SpecDif
 
     Raises ValueError if either spec is not found.
     """
-    base = ApiSpecRepository.get_by_id(db, base_id)
-    if not base:
-        raise ValueError(f"Base spec {base_id} not found")
+    with tracer.start_as_current_span("service.diff_specs_by_id") as span:
+        span.set_attribute("base.id", base_id)
+        span.set_attribute("compare.id", compare_id)
 
-    other = ApiSpecRepository.get_by_id(db, compare_id)
-    if not other:
-        raise ValueError(f"Compare spec {compare_id} not found")
+        base = ApiSpecRepository.get_by_id(db, base_id)
+        if not base:
+            raise ValueError(f"Base spec {base_id} not found")
 
-    base_schema = json.loads(base.parsed_schema) if base.parsed_schema else {}
-    other_schema = json.loads(other.parsed_schema) if other.parsed_schema else {}
+        other = ApiSpecRepository.get_by_id(db, compare_id)
+        if not other:
+            raise ValueError(f"Compare spec {compare_id} not found")
 
-    return diff_dicts(base_schema, other_schema)
+        base_schema = json.loads(base.parsed_schema) if base.parsed_schema else {}
+        other_schema = json.loads(other.parsed_schema) if other.parsed_schema else {}
+
+        diffs = diff_dicts(base_schema, other_schema)
+        logger.info("Diffed specs %s vs %s -> %d diffs", base_id, compare_id, len(diffs))
+        return diffs

@@ -5,8 +5,14 @@ import json
 import yaml
 import xml.etree.ElementTree as ET
 from typing import Any, Dict
+import logging
+from opentelemetry import trace
 
 from avanamy.utils.file_utils import detect_file_type
+from avanamy.metrics import spec_parse_failures_total
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def parse_api_spec(filename: str, raw_bytes: bytes) -> Dict[str, Any]:
@@ -18,26 +24,35 @@ def parse_api_spec(filename: str, raw_bytes: bytes) -> Dict[str, Any]:
     ftype = detect_file_type(filename, raw_bytes)
     text = raw_bytes.decode("utf-8")
 
-    # --- JSON ---
-    if ftype == "json":
-        obj = json.loads(text)
-        if not isinstance(obj, dict):
-            raise ValueError("JSON root must be an object")
-        return obj
+    with tracer.start_as_current_span("service.parse_api_spec") as span:
+        span.set_attribute("filename", filename)
+        span.set_attribute("file.type", ftype)
+        try:
+            # --- JSON ---
+            if ftype == "json":
+                obj = json.loads(text)
+                if not isinstance(obj, dict):
+                    raise ValueError("JSON root must be an object")
+                return obj
 
-    # --- YAML ---
-    if ftype == "yaml":
-        obj = yaml.safe_load(text)
-        if not isinstance(obj, dict):
-            raise ValueError("YAML root must be a mapping")
-        return obj
+            # --- YAML ---
+            if ftype == "yaml":
+                obj = yaml.safe_load(text)
+                if not isinstance(obj, dict):
+                    raise ValueError("YAML root must be a mapping")
+                return obj
 
-    # --- XML ---
-    if ftype == "xml":
-        root = ET.fromstring(text)
-        return _xml_to_dict(root)
+            # --- XML ---
+            if ftype == "xml":
+                root = ET.fromstring(text)
+                return _xml_to_dict(root)
 
-    raise ValueError(f"Unsupported or unknown spec format: {ftype}")
+            raise ValueError(f"Unsupported or unknown spec format: {ftype}")
+
+        except Exception:
+            spec_parse_failures_total.inc()
+            logger.exception("Failed to parse API spec: filename=%s ftype=%s", filename, ftype)
+            raise
 
 
 def _xml_to_dict(elem: ET.Element) -> Dict[str, Any]:
