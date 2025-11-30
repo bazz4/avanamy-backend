@@ -18,3 +18,4 @@ def test_main_upload_endpoint(monkeypatch):
     data = resp.json()
     assert data["filename"] == "hello.txt"
     assert data["stored_at"].startswith("s3://test-bucket/")
+
