@@ -1,6 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 
 class ApiSpec(Base):
@@ -9,10 +8,11 @@ class ApiSpec(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     version = Column(String, nullable=True)
-    description = Column(Text, nullable=True)
-
+    description = Column(String, nullable=True)
     original_file_s3_path = Column(String, nullable=False)
-    parsed_schema = Column(JSON, nullable=True)
+
+    # IMPORTANT: store JSON *string* for SQLite compatibility
+    parsed_schema = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
