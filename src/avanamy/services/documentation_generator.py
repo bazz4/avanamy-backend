@@ -3,6 +3,11 @@
 from __future__ import annotations
 from typing import Any, Dict, List
 import json
+import logging
+from opentelemetry import trace
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 # ============================================================
@@ -20,19 +25,28 @@ def generate_markdown_from_normalized_spec(spec: Dict[str, Any]) -> str:
     - Try-it placeholders
     """
 
-    if "paths" not in spec:
-        return _generate_generic_markdown(spec)
+    with tracer.start_as_current_span("service.generate_markdown") as span:
+        span.set_attribute("has.paths", bool(spec.get("paths")))
+        try:
+            if "paths" not in spec:
+                return _generate_generic_markdown(spec)
 
-    lines: List[str] = []
+            lines: List[str] = []
 
-    _add_overview(lines, spec)
-    _add_table_of_contents(lines, spec)
-    _add_auth_section(lines, spec)
-    _add_models_section(lines, spec)
-    _add_endpoint_groups(lines, spec)
-    _add_webhooks_section(lines, spec)
+            _add_overview(lines, spec)
+            _add_table_of_contents(lines, spec)
+            _add_auth_section(lines, spec)
+            _add_models_section(lines, spec)
+            _add_endpoint_groups(lines, spec)
+            _add_webhooks_section(lines, spec)
 
-    return "\n".join(lines).strip() + "\n"
+            result = "\n".join(lines).strip() + "\n"
+            span.set_attribute("toc.items", len(lines))
+            logger.debug("Generated markdown length=%d", len(result))
+            return result
+        except Exception:
+            logger.exception("Failed to generate markdown")
+            raise
 
 
 # ============================================================

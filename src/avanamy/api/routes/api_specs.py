@@ -11,6 +11,11 @@ from sqlalchemy.orm import Session
 from avanamy.db.database import SessionLocal
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
 from avanamy.services.api_spec_service import store_api_spec_file
+import logging
+from opentelemetry import trace
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 router = APIRouter(
     prefix="/api-specs",
@@ -59,17 +64,22 @@ async def upload_api_spec(
     """
     contents = await file.read()
 
-    spec = store_api_spec_file(
-        db=db,
-        file_bytes=contents,
-        filename=file.filename,
-        content_type=file.content_type,
-        name=name,
-        version=version,
-        description=description,
-        parsed_schema=None,
-    )
+    logger.info("API upload handler start: filename=%s", file.filename)
+    with tracer.start_as_current_span("api.upload_api_spec") as span:
+        span.set_attribute("file.size", len(contents) if contents is not None else 0)
 
+        spec = store_api_spec_file(
+            db=db,
+            file_bytes=contents,
+            filename=file.filename,
+            content_type=file.content_type,
+            name=name,
+            version=version,
+            description=description,
+            parsed_schema=None,
+        )
+
+    logger.info("API upload handler complete: spec_id=%s filename=%s", getattr(spec, "id", None), getattr(spec, "name", None))
     return spec
 
 

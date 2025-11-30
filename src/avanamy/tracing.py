@@ -2,7 +2,10 @@
 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import (
+    SimpleSpanProcessor,
+    ConsoleSpanExporter,
+)
 
 
 def configure_tracing(service_name: str = "avanamy-backend") -> None:
@@ -17,7 +20,10 @@ def configure_tracing(service_name: str = "avanamy-backend") -> None:
         return
 
     provider = TracerProvider()
-    processor = BatchSpanProcessor(ConsoleSpanExporter())
+    # Use SimpleSpanProcessor to export synchronously. BatchSpanProcessor
+    # spawns a background worker which can attempt to write to stdout after
+    # pytest has closed its capture file, causing "I/O operation on closed file".
+    processor = SimpleSpanProcessor(ConsoleSpanExporter())
     provider.add_span_processor(processor)
 
     trace.set_tracer_provider(provider)

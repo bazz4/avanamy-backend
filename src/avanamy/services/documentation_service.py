@@ -35,9 +35,9 @@ def generate_and_store_markdown_for_spec(
     logger.info("Starting markdown generation: spec_id=%s", spec.id)
 
     with tracer.start_as_current_span("generate_docs_for_spec") as span:
-        span.set_attribute("spec.id", spec.id)
-        span.set_attribute("spec.name", spec.name or "")
-        span.set_attribute("spec.version", spec.version or "")
+        span.set_attribute("spec.id", str(spec.id))
+        span.set_attribute("spec.name", str(spec.name or ""))
+        span.set_attribute("spec.version", str(spec.version or ""))
 
         if not spec.parsed_schema:
             logger.warning(
