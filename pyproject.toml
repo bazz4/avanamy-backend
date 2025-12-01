@@ -33,7 +33,8 @@ packages = [
 ]
 
 [tool.poetry.scripts]
-avanamy = "avanamy.cli.main:main"
+# Console entry removed: CLI moved/removed. If you need a console script,
+# re-add an entry here pointing to the desired callable.
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
