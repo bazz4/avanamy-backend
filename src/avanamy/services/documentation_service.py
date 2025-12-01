@@ -1,81 +1,77 @@
 # src/avanamy/services/documentation_service.py
-
-from __future__ import annotations
-from typing import Optional
 import json
-import logging 
-from sqlalchemy.orm import Session
-
-from avanamy.models.api_spec import ApiSpec
-from avanamy.repositories.documentation_artifact_repository import (
-    DocumentationArtifactRepository,
-)
-from avanamy.services.s3 import upload_bytes
-from avanamy.services.documentation_generator import (
-    generate_markdown_from_normalized_spec,
-)
-from avanamy.metrics import markdown_generation_total
+import logging
 from opentelemetry import trace
+from prometheus_client import Counter, REGISTRY
+from avanamy.services.s3 import upload_bytes
+from avanamy.services.documentation_renderer import render_markdown_to_html
+from avanamy.services.documentation_generator import generate_markdown_from_normalized_spec
+from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
+
 
 ARTIFACT_TYPE_API_MARKDOWN = "api_markdown"
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-def generate_and_store_markdown_for_spec(
-    db: Session,
-    spec: ApiSpec,
-) -> Optional[str]:
+def safe_counter(name, documentation, **kwargs):
     """
-    Generate Markdown documentation for a given ApiSpec and store it in S3.
+    Ensures Prometheus metrics do not error during pytest collection.
+    If a metric with the same name exists, return the existing instance.
+    """
+    try:
+        return Counter(name, documentation, **kwargs)
+    except ValueError:
+        # metric already registered — reuse existing one
+        return REGISTRY._names_to_collectors[name]
+    
 
-    Returns the S3 path if successful, or None if there is no parsed_schema
-    or if JSON decoding fails.
+markdown_gen_counter = safe_counter(
+    "avanamy_markdown_generation_total",
+    "Number of markdown documentation generations"
+)
+
+def generate_and_store_markdown_for_spec(db, spec):
     """
-    logger.info("Starting markdown generation: spec_id=%s", spec.id)
+    Generate Markdown documentation for a given spec.
+    Store only Markdown in S3.
+    Return the markdown key.
+    """
 
     with tracer.start_as_current_span("generate_docs_for_spec") as span:
-        span.set_attribute("spec.id", str(spec.id))
-        span.set_attribute("spec.name", str(spec.name or ""))
-        span.set_attribute("spec.version", str(spec.version or ""))
+        markdown_gen_counter.inc()
+        logger.info(f"Generating documentation for spec {spec.id}")
 
         if not spec.parsed_schema:
-            logger.warning(
-                "Spec %s has no parsed_schema — skipping markdown generation.",
-                spec.id,
-            )
-            span.set_attribute("docs.skipped_reason", "missing_parsed_schema")
+            logger.warning(f"Spec {spec.id} has no parsed_schema. Skipping doc generation.")
             return None
 
-    if not spec.parsed_schema:
-        # Nothing to generate docs from
-        return None
-
-    try:
-        raw = spec.parsed_schema
-
-        if raw is None:
+        try:
+            schema = json.loads(spec.parsed_schema)
+        except Exception:
+            logger.exception(f"Spec {spec.id}: stored parsed_schema is not valid JSON")
             return None
 
-        if isinstance(raw, dict):
-            schema = raw
-        else:
-            schema = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+        # --- Step 1: Generate Markdown ---
+        markdown = generate_markdown_from_normalized_spec(schema)
 
-    markdown = generate_markdown_from_normalized_spec(schema)
-    key = f"docs/{spec.id}/api.md"
+        # --- Step 2: Store ONLY markdown (tests expect this) ---
+        md_key = f"docs/{spec.id}/api.md"
+        _, md_url = upload_bytes(
+            md_key,
+            markdown.encode("utf-8"),
+            content_type="text/markdown"
+        )
 
-    _, s3_url = upload_bytes(key, markdown.encode("utf-8"), "text/markdown")
+        # --- Step 3: Save reference in DB ---
+        repo = DocumentationArtifactRepository()
+        repo.create(
+            db,
+            api_spec_id=spec.id,
+            artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
+            s3_path=md_key,
+        )
+        db.commit()
 
+        return md_key
 
-    repo = DocumentationArtifactRepository()
-    repo.create(
-        db,
-        api_spec_id=spec.id,
-        artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
-        s3_path=key,  # store S3 key; or s3_url if you prefer
-    )
-    markdown_generation_total.inc()
-    return key

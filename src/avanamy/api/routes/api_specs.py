@@ -1,7 +1,7 @@
 # src/avanamy/api/routes/api_specs.py
 
 from __future__ import annotations
-
+import json
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
@@ -21,6 +21,28 @@ router = APIRouter(
     prefix="/api-specs",
     tags=["API Specs"],
 )
+
+def serialize_spec(spec):
+    """
+    Convert ORM ApiSpec → ApiSpecOut dict.
+    Ensures parsed_schema is a dict, not a raw JSON string.
+    """
+    data = {
+        "id": spec.id,
+        "name": spec.name,
+        "version": spec.version,
+        "description": spec.description,
+        "original_file_s3_path": spec.original_file_s3_path,
+        "parsed_schema": None,
+    }
+
+    if spec.parsed_schema:
+        try:
+            data["parsed_schema"] = json.loads(spec.parsed_schema)
+        except Exception:
+            data["parsed_schema"] = None
+
+    return data
 
 
 # --- DB dependency -----------------------------------------------------------
@@ -80,7 +102,7 @@ async def upload_api_spec(
         )
 
     logger.info("API upload handler complete: spec_id=%s filename=%s", getattr(spec, "id", None), getattr(spec, "name", None))
-    return spec
+    return serialize_spec(spec)
 
 
 @router.get("/", response_model=List[ApiSpecOut])
@@ -88,7 +110,8 @@ def list_api_specs(db: Session = Depends(get_db)):
     """
     List all API specs.
     """
-    return ApiSpecRepository.list_all(db)
+    return [serialize_spec(s) for s in ApiSpecRepository.list_all(db)]
+
 
 
 # -----------------------------------------------------------------------------
@@ -103,4 +126,4 @@ def get_api_spec(spec_id: int, db: Session = Depends(get_db)):
     spec = ApiSpecRepository.get_by_id(db, spec_id)
     if not spec:
         raise HTTPException(status_code=404, detail="API spec not found")
-    return spec
+    return serialize_spec(spec)
