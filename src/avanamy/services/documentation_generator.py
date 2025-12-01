@@ -4,10 +4,30 @@ from __future__ import annotations
 from typing import Any, Dict, List
 import json
 import logging
+
 from opentelemetry import trace
+from prometheus_client import Counter, REGISTRY
+
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+# ------------------------------------------------------------
+# Prometheus counter (safe to reuse if already registered)
+# ------------------------------------------------------------
+
+def _safe_counter(name: str, documentation: str):
+    try:
+        return Counter(name, documentation)
+    except ValueError:
+        return REGISTRY._names_to_collectors[name]
+
+
+markdown_generation_counter = _safe_counter(
+    "avanamy_markdown_gen_total",
+    "Number of API docs markdown generations"
+)
 
 
 # ============================================================
@@ -17,18 +37,20 @@ tracer = trace.get_tracer(__name__)
 def generate_markdown_from_normalized_spec(spec: Dict[str, Any]) -> str:
     """
     Generate polished Markdown documentation based on a normalized
-    OpenAPI-like schema. Produces Stripe-quality structure:
-    - Table of contents
-    - Endpoint groups (via tags)
-    - Cross-links
-    - Multi-language examples
-    - Try-it placeholders
+    OpenAPI-like schema.
     """
+
+    markdown_generation_counter.inc()
 
     with tracer.start_as_current_span("service.generate_markdown") as span:
         span.set_attribute("has.paths", bool(spec.get("paths")))
+        span.set_attribute("has.components", bool(spec.get("components")))
+
+        logger.info("Starting Markdown generation")
+
         try:
             if "paths" not in spec:
+                logger.warning("Spec has no paths; using fallback generator")
                 return _generate_generic_markdown(spec)
 
             lines: List[str] = []
@@ -41,9 +63,12 @@ def generate_markdown_from_normalized_spec(spec: Dict[str, Any]) -> str:
             _add_webhooks_section(lines, spec)
 
             result = "\n".join(lines).strip() + "\n"
-            span.set_attribute("toc.items", len(lines))
-            logger.debug("Generated markdown length=%d", len(result))
+
+            span.set_attribute("markdown.length", len(result))
+            logger.debug("Markdown generation complete; length=%d", len(result))
+
             return result
+
         except Exception:
             logger.exception("Failed to generate markdown")
             raise
@@ -62,7 +87,6 @@ def _add_table_of_contents(lines: List[str], spec: Dict[str, Any]):
     if "components" in spec and spec["components"].get("schemas"):
         lines.append("- [Models](#models)")
 
-    # Add TOC entries for groups and endpoints
     tag_map = _group_paths_by_tag(spec)
     for tag in tag_map:
         anchor = tag.lower().replace(" ", "-")
@@ -74,7 +98,6 @@ def _add_table_of_contents(lines: List[str], spec: Dict[str, Any]):
             anchor = f"{method.lower()}-{path.strip('/').replace('/', '-')}"
             lines.append(f"  - `{method} {path}` → [{path}](#{anchor})")
 
-    # Webhooks
     if spec.get("webhooks") or spec.get("x-webhooks"):
         lines.append("- [Webhooks](#webhooks)")
 
@@ -154,7 +177,6 @@ def _add_models_section(lines: List[str], spec: Dict[str, Any]):
     lines.append("## Models\n")
 
     for model_name, model in schemas.items():
-        # preserve casing of original OpenAPI definition
         lines.append(f"### {model_name}\n")
 
         desc = model.get("description")
@@ -181,7 +203,7 @@ def _add_models_section(lines: List[str], spec: Dict[str, Any]):
 
 
 # ============================================================
-#  ENDPOINTS BY GROUP (TAGS)
+#  ENDPOINTS (by tag)
 # ============================================================
 
 def _group_paths_by_tag(spec: Dict[str, Any]):
@@ -208,7 +230,6 @@ def _add_endpoint_groups(lines: List[str], spec: Dict[str, Any]):
     for tag, endpoints in tag_map.items():
         lines.append(f"## {tag}\n")
 
-        # Summary table
         lines.append("| Method | Path | Summary |")
         lines.append("|--------|------|---------|")
 
@@ -220,7 +241,6 @@ def _add_endpoint_groups(lines: List[str], spec: Dict[str, Any]):
 
         lines.append("")
 
-        # Detailed endpoint section
         for ep in endpoints:
             _add_endpoint_detail(lines, ep)
 
@@ -238,23 +258,21 @@ def _add_endpoint_detail(lines: List[str], ep: Dict[str, Any]):
     lines.append(f"### {method} {path}")
     lines.append(f'<a id="{anchor}"></a>\n')
 
-    # summary + description
     if op.get("summary"):
         lines.append(f"**Summary:** {op['summary']}\n")
 
     if op.get("description"):
         lines.append(op["description"] + "\n")
 
-    # request examples
     lines.append("#### Try It\n")
     lines.append("This block lets developers quickly see how a request might be made.\n")
-    lines.append("```bash\ncurl -X {method} {path}\n```".replace("{method}", method).replace("{path}", path))
+    lines.append("```bash\ncurl -X {method} {path}\n```"
+                 .replace("{method}", method)
+                 .replace("{path}", path))
     lines.append("")
 
-    # Multi-language examples
     _add_language_examples(lines, method, path)
 
-    # Parameters
     params = op.get("parameters", [])
     if params:
         lines.append("#### Parameters\n")
@@ -272,10 +290,7 @@ def _add_endpoint_detail(lines: List[str], ep: Dict[str, Any]):
             )
         lines.append("")
 
-    # Request body
     _add_request_body(lines, op)
-
-    # Responses
     _add_responses(lines, op)
 
 
@@ -287,13 +302,11 @@ def _add_language_examples(lines: List[str], method: str, path: str):
     url = path
     lines.append("#### Examples\n")
 
-    # Curl
     lines.append("**cURL**")
     lines.append("```bash")
     lines.append(f"curl -X {method} \"{url}\"")
     lines.append("```")
 
-    # Python
     lines.append("\n**Python**")
     lines.append("```python")
     lines.append("import requests")
@@ -301,7 +314,6 @@ def _add_language_examples(lines: List[str], method: str, path: str):
     lines.append("print(response.json())")
     lines.append("```")
 
-    # Node
     lines.append("\n**Node.js**")
     lines.append("```javascript")
     lines.append("import fetch from 'node-fetch';")
@@ -309,7 +321,6 @@ def _add_language_examples(lines: List[str], method: str, path: str):
     lines.append("console.log(await res.json());")
     lines.append("```")
 
-    # C#
     lines.append("\n**C#**")
     lines.append("```csharp")
     lines.append("using var client = new HttpClient();")
