@@ -1,3 +1,4 @@
+# tests/services/test_documentation_service.py
 import json
 from unittest.mock import MagicMock, patch
 
@@ -30,8 +31,23 @@ def test_generate_and_store_markdown_for_spec_success(db):
 
         key = generate_and_store_markdown_for_spec(db, test_spec)
 
+        # Correct markdown key
         assert key == "docs/123/api.md"
-        mock_upload.assert_called_once()
+
+        # Called twice: markdown and html
+        assert mock_upload.call_count == 2
+        mock_upload.assert_any_call(
+            "docs/123/api.md",
+            mock_upload.call_args_list[0][0][1],  # markdown bytes
+            content_type="text/markdown",
+        )
+        mock_upload.assert_any_call(
+            "docs/123/api.html",
+            mock_upload.call_args_list[1][0][1],  # html bytes
+            content_type="text/html",
+        )
+
+        # Verify DB artifact creation for markdown
         mock_repo.create.assert_called_once_with(
             db,
             api_spec_id=123,
