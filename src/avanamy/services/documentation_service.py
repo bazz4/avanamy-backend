@@ -88,3 +88,62 @@ def generate_and_store_markdown_for_spec(db, spec: ApiSpec):
 
         # Important: Do NOT refresh in tests (spec is not persisted)
         return md_key
+
+def regenerate_all_docs_for_spec(db, spec):
+    """
+    Regenerate BOTH markdown and HTML documentation for a spec.
+    Stores both artifacts in S3 and creates repo entries.
+    Returns (markdown_key, html_key).
+    """
+    with tracer.start_as_current_span("docs.regenerate_all") as span:
+        span.set_attribute("spec.id", spec.id)
+        logger.info("Regenerating documentation for spec_id=%s", spec.id)
+
+        if not spec.parsed_schema:
+            logger.warning("Spec %s has no parsed_schema. Cannot regenerate docs.", spec.id)
+            return None, None
+
+        try:
+            schema = json.loads(spec.parsed_schema)
+        except Exception:
+            logger.exception("Parsed schema for spec_id=%s is invalid JSON", spec.id)
+            return None, None
+
+        # --- Step 1: Generate markdown ---
+        markdown = generate_markdown_from_normalized_spec(schema)
+
+        md_key = f"docs/{spec.id}/api.md"
+        _, md_url = upload_bytes(
+            md_key,
+            markdown.encode("utf-8"),
+            content_type="text/markdown",
+        )
+
+        md_repo = DocumentationArtifactRepository()
+        md_repo.create(
+            db,
+            api_spec_id=spec.id,
+            artifact_type="api_markdown",
+            s3_path=md_key,
+        )
+
+        # --- Step 2: Generate HTML ---
+        html = render_markdown_to_html(markdown)
+
+        html_key = f"docs/{spec.id}/api.html"
+        _, html_url = upload_bytes(
+            html_key,
+            html.encode("utf-8"),
+            content_type="text/html",
+        )
+
+        html_repo = DocumentationArtifactRepository()
+        html_repo.create(
+            db,
+            api_spec_id=spec.id,
+            artifact_type="api_html",
+            s3_path=html_key,
+        )
+
+        db.commit()
+        return md_key, html_key

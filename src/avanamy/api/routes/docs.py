@@ -1,18 +1,51 @@
+# src/avanamy/api/routes/docs.py
+
+from __future__ import annotations
+
+import logging
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
-from avanamy.db.database import SessionLocal
-from avanamy.repositories.api_spec_repository import ApiSpecRepository
-from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
-from avanamy.services.s3 import download_bytes
-from avanamy.services.documentation_service import ARTIFACT_TYPE_API_MARKDOWN
+from opentelemetry import trace
+from prometheus_client import Counter, REGISTRY
 
-router = APIRouter(
-    prefix="/docs",
-    tags=["Documentation"],
+from avanamy.db.database import SessionLocal
+from avanamy.repositories.documentation_artifact_repository import (
+    DocumentationArtifactRepository,
+)
+from avanamy.services.s3 import download_bytes
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
+router = APIRouter(prefix="/docs", tags=["Documentation"])
+
+
+# ----------------------------------------------------------
+# Safe Prometheus counter helper
+# ----------------------------------------------------------
+def safe_counter(name, documentation, **kwargs):
+    try:
+        return Counter(name, documentation, **kwargs)
+    except ValueError:
+        return REGISTRY._names_to_collectors[name]
+
+
+markdown_requests = safe_counter(
+    "avanamy_docs_markdown_requests_total",
+    "Count of markdown documentation fetch requests",
 )
 
+html_requests = safe_counter(
+    "avanamy_docs_html_requests_total",
+    "Count of HTML documentation fetch requests",
+)
+
+
+# ----------------------------------------------------------
+# DB dependency
+# ----------------------------------------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -21,35 +54,90 @@ def get_db():
         db.close()
 
 
-@router.get("/{spec_id}")
+# ========================================================================
+# LEGACY ENDPOINT (REQUIRED BY TESTS)
+# GET /docs/{spec_id}  → returns MARKDOWN
+# ========================================================================
+@router.get("/{spec_id}", response_class=PlainTextResponse)
 def get_docs(spec_id: int, db: Session = Depends(get_db)):
     """
-    Order:
-    1. Use Markdown artifact if available (tests expect this)
-    2. Otherwise serve HTML if available
+    Legacy endpoint: returns MARKDOWN only.
+    Tests rely on this exact behavior.
     """
-    artifact_repo = DocumentationArtifactRepository()
-    artifact = artifact_repo.get_latest_by_spec_id(
-        db,
-        api_spec_id=spec_id,
-        artifact_type=ARTIFACT_TYPE_API_MARKDOWN
-    )
+    markdown_requests.inc()
+    logger.info("Fetching legacy markdown for spec_id=%s", spec_id)
 
-    if artifact:
-        # Return markdown
+    with tracer.start_as_current_span("docs.get_legacy_markdown") as span:
+        span.set_attribute("spec.id", spec_id)
+
+        repo = DocumentationArtifactRepository()
+        artifact = repo.get_latest_by_spec_id(
+            db, spec_id, artifact_type="api_markdown"
+        )
+
+        if not artifact:
+            logger.warning("Markdown artifact missing for spec_id=%s", spec_id)
+            raise HTTPException(
+                status_code=404,
+                detail="Documentation not found",  # EXACT string required by tests
+            )
+
         md_bytes = download_bytes(artifact.s3_path)
+        logger.debug("Fetched markdown bytes for spec_id=%s", spec_id)
+
         return PlainTextResponse(
-            md_bytes.decode("utf-8"),
+            content=md_bytes.decode("utf-8"),
             media_type="text/markdown"
         )
 
-    # Fallback: try HTML
-    spec = ApiSpecRepository().get_by_id(db, spec_id)
-    if spec and spec.documentation_html_s3_path:
-        html_bytes = download_bytes(spec.documentation_html_s3_path)
-        return HTMLResponse(
-            content=html_bytes.decode("utf-8"),
-            media_type="text/html"
+
+# ========================================================================
+# MODERN ENDPOINTS (FOR YOUR PRODUCT)
+# ========================================================================
+
+# Get raw markdown
+@router.get("/{spec_id}/markdown", response_class=PlainTextResponse)
+def get_markdown(spec_id: int, db: Session = Depends(get_db)):
+    markdown_requests.inc()
+    logger.info("Fetching markdown for spec_id=%s", spec_id)
+
+    with tracer.start_as_current_span("docs.get_markdown") as span:
+        span.set_attribute("spec.id", spec_id)
+
+        repo = DocumentationArtifactRepository()
+        artifact = repo.get_latest_by_spec_id(
+            db, spec_id, artifact_type="api_markdown"
         )
 
-    raise HTTPException(status_code=404, detail="Documentation not found")
+        if not artifact:
+            raise HTTPException(
+                status_code=404,
+                detail="Markdown documentation not found",
+            )
+
+        return download_bytes(artifact.s3_path).decode("utf-8")
+
+
+# Get generated HTML
+@router.get("/{spec_id}/html", response_class=HTMLResponse)
+def get_html(spec_id: int, db: Session = Depends(get_db)):
+    html_requests.inc()
+    logger.info("Fetching HTML for spec_id=%s", spec_id)
+
+    with tracer.start_as_current_span("docs.get_html") as span:
+        span.set_attribute("spec.id", spec_id)
+
+        repo = DocumentationArtifactRepository()
+        artifact = repo.get_latest_by_spec_id(
+            db, spec_id, artifact_type="api_html"
+        )
+
+        if not artifact:
+            raise HTTPException(
+                status_code=404,
+                detail="HTML documentation not found",
+            )
+
+        return HTMLResponse(
+            content=download_bytes(artifact.s3_path).decode("utf-8")
+        )

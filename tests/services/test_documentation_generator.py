@@ -178,3 +178,4 @@ def test_webhooks_section_optional():
     """
     md = generate_markdown_from_normalized_spec(_sample_spec())
     assert "## Webhooks" not in md
+

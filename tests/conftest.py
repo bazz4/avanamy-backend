@@ -2,7 +2,9 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
 
+from avanamy.main import app
 from avanamy.db.database import Base
 
 # IMPORTANT: Import all models so SQLAlchemy registers the tables
@@ -47,3 +49,7 @@ def db(engine):
         yield session
     finally:
         session.close()
+
+@pytest.fixture
+def client():
+    return TestClient(app)
