@@ -10,6 +10,7 @@ class ApiSpec(Base):
     version = Column(String, nullable=True)
     description = Column(String, nullable=True)
     original_file_s3_path = Column(String, nullable=False)
+    documentation_html_s3_path = Column(String, nullable=True)
 
     # IMPORTANT: store JSON *string* for SQLite compatibility
     parsed_schema = Column(Text, nullable=True)
