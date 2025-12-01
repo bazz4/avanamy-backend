@@ -40,4 +40,3 @@ This will start the FastAPI app with tracing and Prometheus instrumentation enab
 	- `src/avanamy/logging_config.py` (trace-id-to-logs correlation)
 - Adjusted tests and code where necessary to be compatible with observability additions.
 
-If you'd like structured (JSON) logs or a different exporter (OTLP/Tempo), I can add that as a follow-up.
