@@ -9,10 +9,11 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
-from avanamy.services.s3 import upload_bytes
+from avanamy.services.s3 import upload_bytes, upload_bytes, copy_s3_object, delete_s3_object, generate_s3_url
 from avanamy.services.api_spec_parser import parse_api_spec
 from avanamy.services.api_spec_normalizer import normalize_api_spec
 from avanamy.services.documentation_service import generate_and_store_markdown_for_spec
+from avanamy.utils.filename_utils import build_uploaded_spec_s3_key, slugify_filename, get_file_extension 
 from avanamy.metrics import (
     spec_upload_total,
     spec_parse_failures_total
@@ -29,6 +30,7 @@ def store_api_spec_file(
     filename: str,
     content_type: Optional[str] = None,
     *,
+    tenant_id: str,
     name: Optional[str] = None,
     version: Optional[str] = None,
     description: Optional[str] = None,
@@ -66,17 +68,23 @@ def store_api_spec_file(
             logger.exception("Failed to parse/normalize spec: filename=%s", filename)
 
         # --------------------------------------------------------------------
-        # 2. Upload to S3
+        # 2. TEMP UPLOAD (because spec_id does not exist yet)
         # --------------------------------------------------------------------
-        s3_key = f"api-specs/{uuid4()}-{filename}"
-        with tracer.start_as_current_span("service.s3_upload") as s3_span:
-            s3_span.set_attribute("s3.key", s3_key)
-            s3_span.set_attribute("file.size", len(file_bytes) if file_bytes is not None else 0)
-            _, s3_url = upload_bytes(s3_key, file_bytes, content_type=content_type)
-        logger.info("Uploaded spec to S3: s3_key=%s", s3_key)
+        temp_key = (
+            f"tenants/{tenant_id}/specs/pending/"
+            f"{uuid4()}-{slugify_filename(name or filename)}{get_file_extension(filename)}"
+        )
+
+        with tracer.start_as_current_span("service.s3_upload_temp") as s3_span:
+            s3_span.set_attribute("tenant.id", tenant_id)
+            s3_span.set_attribute("s3.key", temp_key)
+            s3_span.set_attribute("file.size", len(file_bytes))
+            _, temp_url = upload_bytes(temp_key, file_bytes, content_type=content_type)
+
+        logger.info("Uploaded temp spec to S3: temp_key=%s", temp_key)
 
         # --------------------------------------------------------------------
-        # 3. Determine effective name
+        # 3. CREATE SPEC DB RECORD
         # --------------------------------------------------------------------
         effective_name = name or filename
 
@@ -85,17 +93,36 @@ def store_api_spec_file(
         # --------------------------------------------------------------------
         repo = ApiSpecRepository()
         with tracer.start_as_current_span("db.create_api_spec") as db_span:
+            db_span.set_attribute("tenant.id", tenant_id)
             db_span.set_attribute("spec.name", effective_name)
             spec = repo.create(
                 db,
+                tenant_id=tenant_id,
                 name=effective_name,
                 version=version,
                 description=description,
-                original_file_s3_path=s3_url,
+                original_file_s3_path=temp_url,
                 parsed_schema=parsed_json,
             )
 
-        logger.info("Created spec DB record: id=%s name=%s version=%s", spec.id, spec.name, spec.version)
+
+        logger.info("Created spec DB record: id=%s", spec.id)
+
+        # --------------------------------------------------------------------
+        # 4. MOVE S3 OBJECT INTO FINAL LOCATION
+        # --------------------------------------------------------------------
+        final_key = build_uploaded_spec_s3_key(
+            tenant_id=str(tenant_id),
+            spec_id=spec.id,
+            spec_name=effective_name,
+            original_filename=filename,
+        )
+
+        copy_s3_object(temp_key, final_key)
+        delete_s3_object(temp_key)
+
+        spec.original_file_s3_path = generate_s3_url(final_key)
+        db.commit()
 
         # --------------------------------------------------------------------
         # 5. Generate documentation artifact (best-effort)

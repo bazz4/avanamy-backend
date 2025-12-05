@@ -2,20 +2,26 @@ from __future__ import annotations
 
 import json
 import logging
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from opentelemetry import trace
-
+from prometheus_client import Counter, REGISTRY
+from uuid import UUID
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from avanamy.api.dependencies.tenant import get_tenant_id
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
 from avanamy.services.api_spec_service import store_api_spec_file
 from avanamy.services.documentation_service import regenerate_all_docs_for_spec
-
+from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
+from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.db.database import get_db
+from avanamy.services.s3 import download_bytes
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -32,6 +38,7 @@ def serialize_spec(spec):
     """
     data = {
         "id": spec.id,
+        "tenant_id": spec.tenant_id,
         "name": spec.name,
         "version": spec.version,
         "description": spec.description,
@@ -82,6 +89,7 @@ async def upload_api_spec(
     name: Optional[str] = None,
     version: Optional[str] = None,
     description: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -98,6 +106,7 @@ async def upload_api_spec(
             file_bytes=contents,
             filename=file.filename,
             content_type=file.content_type,
+            tenant_id=tenant_id,
             name=name,
             version=version,
             description=description,
@@ -109,24 +118,86 @@ async def upload_api_spec(
 
 
 @router.get("/", response_model=List[ApiSpecOut])
-def list_api_specs(db: Session = Depends(get_db)):
-    """
-    List all API specs.
-    """
-    return [serialize_spec(s) for s in ApiSpecRepository.list_all(db)]
+def list_api_specs(
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    with tracer.start_as_current_span("api.list_api_specs") as span:
+        span.set_attribute("tenant.id", tenant_id)
+
+        # Convert to UUID if your column is UUID
+        tenant_uuid = UUID(tenant_id)
+
+        specs = (
+            db.query(ApiSpec)
+            .filter(ApiSpec.tenant_id == tenant_uuid)
+            .order_by(ApiSpec.created_at.desc())
+            .all()
+        )
+
+    return [serialize_spec(s) for s in specs]
+
+# -----------------------------------------------------------------------------
+#  MUST COME LAST — dynamic path
+# -----------------------------------------------------------------------------
+
+@router.get("/{spec_id}", response_model=ApiSpecOut)
+def get_api_spec(
+    spec_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    tenant_uuid = UUID(tenant_id)
+
+    with tracer.start_as_current_span("api.get_api_spec") as span:
+        span.set_attribute("tenant.id", tenant_id)
+        span.set_attribute("api_spec.id", spec_id)
+
+        spec = (
+            db.query(ApiSpec)
+            .filter(
+                ApiSpec.id == spec_id,
+                ApiSpec.tenant_id == tenant_uuid,
+            )
+            .first()
+        )
+
+        if not spec:
+            raise HTTPException(status_code=404, detail="API spec not found")
+
+    return serialize_spec(spec)
 
 @router.post("/{spec_id}/regenerate-docs")
-def regenerate_docs(spec_id: int, db: Session = Depends(get_db)):
+def regenerate_docs(
+    spec_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
     """
-    Regenerates markdown + HTML documentation for the given spec.
+    Trigger regeneration of Markdown + HTML documentation
+    for a given API spec. Returns the S3 keys for the
+    newly generated artifacts.
     """
-    logger.info("API request: regenerate docs for spec_id=%s", spec_id)
+    logger.info("Regenerating docs for spec_id=%s", spec_id)
 
-    with tracer.start_as_current_span("api.regenerate_docs") as span:
+    tenant_uuid = UUID(tenant_id)
+
+    with tracer.start_as_current_span("api_specs.regenerate_docs") as span:
         span.set_attribute("spec.id", spec_id)
+        span.set_attribute("tenant.id", tenant_id)
 
-        spec = ApiSpecRepository.get_by_id(db, spec_id)
+        spec = ApiSpecRepository.get_by_id(
+            db=db,
+            spec_id=spec_id,
+            tenant_id=tenant_uuid,
+        )
+
         if not spec:
+            logger.warning(
+                "Spec not found for regeneration spec_id=%s tenant_id=%s",
+                spec_id,
+                tenant_id,
+            )
             raise HTTPException(status_code=404, detail="API spec not found")
 
         md_key, html_key = regenerate_all_docs_for_spec(db, spec)
@@ -137,47 +208,9 @@ def regenerate_docs(spec_id: int, db: Session = Depends(get_db)):
                 detail="Failed to regenerate documentation (missing or invalid schema)",
             )
 
+        # keep the original response shape so tests/clients don't break
         return {
             "spec_id": spec.id,
             "markdown_s3_path": md_key,
             "html_s3_path": html_key,
-        }
-
-# -----------------------------------------------------------------------------
-#  MUST COME LAST — dynamic path
-# -----------------------------------------------------------------------------
-
-@router.get("/{spec_id}", response_model=ApiSpecOut)
-def get_api_spec(spec_id: int, db: Session = Depends(get_db)):
-    """
-    Get a single API spec by ID.
-    """
-    spec = ApiSpecRepository.get_by_id(db, spec_id)
-    if not spec:
-        raise HTTPException(status_code=404, detail="API spec not found")
-    return serialize_spec(spec)
-
-@router.post("/{spec_id}/regenerate-docs")
-def regenerate_docs(spec_id: int, db: Session = Depends(get_db)):
-    """
-    Trigger regeneration of Markdown + HTML documentation
-    for a given API spec. Returns the S3 keys for the
-    newly generated artifacts.
-    """
-    logger.info("Regenerating docs for spec_id=%s", spec_id)
-
-    with tracer.start_as_current_span("api_specs.regenerate_docs") as span:
-        span.set_attribute("spec.id", spec_id)
-
-        spec = db.query(ApiSpec).filter(ApiSpec.id == spec_id).first()
-        if not spec:
-            logger.warning("Spec not found for regeneration spec_id=%s", spec_id)
-            raise HTTPException(status_code=404, detail="API spec not found")
-
-        md_key, html_key = regenerate_all_docs_for_spec(db, spec)
-
-        # keep response simple for now; we can extend with more metadata later
-        return {
-            "markdown_key": md_key,
-            "html_key": html_key,
         }
