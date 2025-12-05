@@ -7,6 +7,8 @@ import avanamy.models.generation_job
 import avanamy.models.documentation_artifact
 import avanamy.models.version_history
 import avanamy.models.tenant
+import avanamy.models.user
+import avanamy.models.provider
 
 from avanamy.db.database import Base
 target_metadata = Base.metadata

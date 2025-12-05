@@ -13,8 +13,9 @@ class VersionHistory(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
     version_label = Column(String, nullable=False)
     changelog = Column(Text, nullable=True)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     api_spec = relationship("ApiSpec")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
  
