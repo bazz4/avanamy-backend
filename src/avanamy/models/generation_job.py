@@ -16,5 +16,7 @@ class GenerationJob(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     api_spec = relationship("ApiSpec")

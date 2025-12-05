@@ -13,7 +13,7 @@ class DocumentationArtifact(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
     artifact_type = Column(String, nullable=False)
     s3_path = Column(String, nullable=False)
-
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
     api_spec = relationship("ApiSpec")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
