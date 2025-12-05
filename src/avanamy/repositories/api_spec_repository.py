@@ -12,9 +12,9 @@ tracer = trace.get_tracer(__name__)
 class ApiSpecRepository:
 
     @staticmethod
-    def create(db: Session, *, name: str, version: str = None,
-               description: str = None, original_file_s3_path: str = None,
-               parsed_schema: dict | str = None) -> ApiSpec:
+    def create(db: Session, *, tenant_id: str, name: str, version: str = None,
+           description: str = None, original_file_s3_path: str = None,
+           parsed_schema: dict = None) -> ApiSpec:
 
         # Ensure parsed_schema is stored as a JSON string for SQLite compatibility
         schema_to_store = None
@@ -27,6 +27,7 @@ class ApiSpecRepository:
             schema_to_store = json.dumps(parsed_schema)
 
         spec = ApiSpec(
+            tenant_id=tenant_id,
             name=name,
             version=version,
             description=description,
@@ -48,18 +49,29 @@ class ApiSpecRepository:
         return spec
 
     @staticmethod
-    def get_by_id(db: Session, spec_id: int) -> ApiSpec | None:
-        return db.query(ApiSpec).filter(ApiSpec.id == spec_id).first()
+    def get_by_id(db: Session, spec_id: int, tenant_id: str):
+        return (
+            db.query(ApiSpec)
+            .filter(ApiSpec.id == spec_id, ApiSpec.tenant_id == tenant_id)
+            .first()
+        )
+
 
     @staticmethod
-    def list_all(db: Session):
-        return db.query(ApiSpec).order_by(ApiSpec.created_at.desc()).all()
+    def list_for_tenant(db: Session, tenant_id: str):
+        return (
+            db.query(ApiSpec)
+            .filter(ApiSpec.tenant_id == tenant_id)
+            .order_by(ApiSpec.created_at.desc())
+            .all()
+        )
+
 
     @staticmethod
-    def delete(db: Session, spec_id: int) -> bool:
-        spec = db.query(ApiSpec).filter(ApiSpec.id == spec_id).first()
-        if not spec:
-            return False
-        db.delete(spec)
-        db.commit()
-        return True
+    def delete(db: Session, spec_id: int, tenant_id: str):
+        spec = (
+            db.query(ApiSpec)
+            .filter(ApiSpec.id == spec_id, ApiSpec.tenant_id == tenant_id)
+            .first()
+        )
+

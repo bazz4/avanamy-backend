@@ -63,3 +63,20 @@ def download_bytes(key: str) -> bytes:
     except ClientError:
         logger.error("S3 download failed for key=%s", key)
         raise
+
+def copy_s3_object(source_key: str, dest_key: str):
+    bucket = AWS_BUCKET
+    _s3_client.copy_object(
+        Bucket=bucket,
+        CopySource={"Bucket": bucket, "Key": source_key},
+        Key=dest_key,
+    )
+
+def delete_s3_object(key: str):
+    _s3_client.delete_object(
+        Bucket=AWS_BUCKET,
+        Key=key
+    )
+
+def generate_s3_url(key: str) -> str:
+    return f"s3://{AWS_BUCKET}/{key}"

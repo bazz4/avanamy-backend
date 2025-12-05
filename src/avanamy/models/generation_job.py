@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, JSON, DateTime
+from sqlalchemy import UUID, Column, Integer, String, ForeignKey, JSON, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
@@ -8,7 +8,7 @@ class GenerationJob(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     api_spec_id = Column(Integer, ForeignKey("api_specs.id"), nullable=False)
-
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
     job_type = Column(String, nullable=False)
     status = Column(String, nullable=False, default="pending")
 

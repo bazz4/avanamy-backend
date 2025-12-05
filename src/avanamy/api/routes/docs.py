@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse, HTMLResponse
 from sqlalchemy.orm import Session
@@ -15,6 +16,8 @@ from avanamy.repositories.documentation_artifact_repository import (
     DocumentationArtifactRepository,
 )
 from avanamy.services.s3 import download_bytes
+from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.models.api_spec import ApiSpec
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -58,8 +61,12 @@ def get_db():
 # LEGACY ENDPOINT (REQUIRED BY TESTS)
 # GET /docs/{spec_id}  → returns MARKDOWN
 # ========================================================================
-@router.get("/{spec_id}", response_class=PlainTextResponse)
-def get_docs(spec_id: int, db: Session = Depends(get_db)):
+@router.get("/specs/{spec_id}", response_class=PlainTextResponse)
+def get_original_spec(
+    spec_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
     """
     Legacy endpoint: returns MARKDOWN only.
     Tests rely on this exact behavior.
@@ -72,7 +79,7 @@ def get_docs(spec_id: int, db: Session = Depends(get_db)):
 
         repo = DocumentationArtifactRepository()
         artifact = repo.get_latest_by_spec_id(
-            db, spec_id, artifact_type="api_markdown"
+            db, spec_id, tenant_id, artifact_type="api_markdown"
         )
 
         if not artifact:
@@ -96,17 +103,22 @@ def get_docs(spec_id: int, db: Session = Depends(get_db)):
 # ========================================================================
 
 # Get raw markdown
-@router.get("/{spec_id}/markdown", response_class=PlainTextResponse)
-def get_markdown(spec_id: int, db: Session = Depends(get_db)):
+@router.get("/docs/{spec_id}/markdown", response_class=PlainTextResponse)
+def get_markdown_doc(
+    spec_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
     markdown_requests.inc()
     logger.info("Fetching markdown for spec_id=%s", spec_id)
 
     with tracer.start_as_current_span("docs.get_markdown") as span:
-        span.set_attribute("spec.id", spec_id)
+        span.set_attribute("tenant.id", tenant_id)
+        span.set_attribute("api_spec.id", spec_id)
 
         repo = DocumentationArtifactRepository()
         artifact = repo.get_latest_by_spec_id(
-            db, spec_id, artifact_type="api_markdown"
+            db, spec_id, tenant_id, artifact_type="api_markdown"
         )
 
         if not artifact:
@@ -117,19 +129,23 @@ def get_markdown(spec_id: int, db: Session = Depends(get_db)):
 
         return download_bytes(artifact.s3_path).decode("utf-8")
 
-
 # Get generated HTML
-@router.get("/{spec_id}/html", response_class=HTMLResponse)
-def get_html(spec_id: int, db: Session = Depends(get_db)):
+@router.get("/docs/{spec_id}/html", response_class=HTMLResponse)
+def get_docs_html(
+    spec_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
     html_requests.inc()
     logger.info("Fetching HTML for spec_id=%s", spec_id)
 
-    with tracer.start_as_current_span("docs.get_html") as span:
-        span.set_attribute("spec.id", spec_id)
+    with tracer.start_as_current_span("api.get_docs_html") as span:
+        span.set_attribute("tenant.id", tenant_id)
+        span.set_attribute("api_spec.id", spec_id)
 
         repo = DocumentationArtifactRepository()
         artifact = repo.get_latest_by_spec_id(
-            db, spec_id, artifact_type="api_html"
+            db, spec_id, tenant_id, artifact_type="api_html"
         )
 
         if not artifact:

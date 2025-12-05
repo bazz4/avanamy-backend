@@ -2,13 +2,14 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-from avanamy.db.database import Base
-
-# Import all model modules so Alembic sees them
 import avanamy.models.api_spec
-import avanamy.models.documentation_artifact
 import avanamy.models.generation_job
+import avanamy.models.documentation_artifact
 import avanamy.models.version_history
+import avanamy.models.tenant
+
+from avanamy.db.database import Base
+target_metadata = Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

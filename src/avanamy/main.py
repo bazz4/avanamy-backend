@@ -1,50 +1,41 @@
 from dotenv import load_dotenv
-load_dotenv()  # <--- THIS LOADS .env
+load_dotenv()
 
 from fastapi import FastAPI, UploadFile, File
-from avanamy.api.routes import schemas  # package import
+from avanamy.api.routes import schemas
 from avanamy.api.routes.api_specs import router as api_specs_router
 from avanamy.api.routes.docs import router as docs_router
+import avanamy.models.tenant  # ensure models load for Alembic
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
 from prometheus_fastapi_instrumentator import Instrumentator
 from avanamy.tracing import configure_tracing
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-import tempfile
 
+# ------------------------------------------------------------------
+# Configure Observability
+# ------------------------------------------------------------------
 configure_logging()
 configure_tracing()
 
 app = FastAPI(debug=True)
 
-app.include_router(schemas.router, prefix="/schemas", tags=["Schemas"])
-app.include_router(api_specs_router) 
+# All API spec + docs operations are now here
+app.include_router(api_specs_router)
 app.include_router(docs_router)
 
-# Instrument FastAPI for tracing
-FastAPIInstrumentor.instrument_app(app)
+# REMOVE THIS — no longer valid:
+# app.include_router(docs_router)
 
-# Add Prometheus instrumentation
+# ------------------------------------------------------------------
+# Observability
+# ------------------------------------------------------------------
+FastAPIInstrumentor.instrument_app(app)
 Instrumentator().instrument(app).expose(app)
 
+# ------------------------------------------------------------------
+# Health Check
+# ------------------------------------------------------------------
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
-
-
-@app.post("/upload")
-async def upload_to_s3(file: UploadFile = File(...)):
-    """
-    Accepts a file upload and stores it in S3.
-    """
-    # Read file contents as bytes
-    contents = await file.read()
-
-    # Build a simple S3 key and upload bytes; upload_bytes returns (key, s3_url)
-    key = f"uploads/{file.filename}"
-    _, s3_url = upload_bytes(key, contents, content_type=getattr(file, "content_type", None))
-
-    return {
-        "filename": file.filename,
-        "stored_at": s3_url,
-    }
