@@ -2,13 +2,14 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-import avanamy.models.api_spec
-import avanamy.models.generation_job
-import avanamy.models.documentation_artifact
-import avanamy.models.version_history
-import avanamy.models.tenant
 import avanamy.models.user
+import avanamy.models.tenant
 import avanamy.models.provider
+import avanamy.models.api_product
+import avanamy.models.api_spec
+import avanamy.models.documentation_artifact
+import avanamy.models.generation_job
+import avanamy.models.version_history
 
 from avanamy.db.database import Base
 target_metadata = Base.metadata

@@ -11,12 +11,22 @@ class ApiSpec(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
+
     provider_id = Column(
         UUID(as_uuid=True),
         ForeignKey("providers.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
+
+    # NEW FIELD
+    api_product_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("api_products.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     api_name = Column(String, nullable=True)
     name = Column(String, nullable=False)
     version = Column(String, nullable=True)
@@ -24,7 +34,6 @@ class ApiSpec(Base):
     original_file_s3_path = Column(String, nullable=False)
     documentation_html_s3_path = Column(String, nullable=True)
 
-    # IMPORTANT: store JSON *string* for SQLite compatibility
     parsed_schema = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -33,7 +42,6 @@ class ApiSpec(Base):
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     __table_args__ = (
-        # Prevent duplicate versions of the same API for the same provider + tenant
         sa.UniqueConstraint(
             "tenant_id",
             "provider_id",
