@@ -7,7 +7,7 @@ class GenerationJob(Base):
     __tablename__ = "generation_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
-    api_spec_id = Column(Integer, ForeignKey("api_specs.id"), nullable=False)
+    api_spec_id = Column(UUID(as_uuid=True), ForeignKey("api_specs.id"), nullable=False)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
     job_type = Column(String, nullable=False)
     status = Column(String, nullable=False, default="pending")

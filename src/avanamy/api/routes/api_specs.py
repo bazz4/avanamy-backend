@@ -16,9 +16,9 @@ from avanamy.api.dependencies.tenant import get_tenant_id
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
-from avanamy.services.api_spec_service import store_api_spec_file
+from avanamy.services.api_spec_service import store_api_spec_file, update_api_spec_file
 from avanamy.services.documentation_service import regenerate_all_docs_for_spec
-from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
+from avanamy.repositories.version_history_repository import VersionHistoryRepository
 from avanamy.api.dependencies.tenant import get_tenant_id
 from avanamy.db.database import get_db
 from avanamy.services.s3 import download_bytes
@@ -68,7 +68,7 @@ def get_db():
 # --- Pydantic models ---------------------------------------------------------
 
 class ApiSpecOut(BaseModel):
-    id: int
+    id: UUID
     name: str
     version: Optional[str] = None
     description: Optional[str] = None
@@ -116,6 +116,130 @@ async def upload_api_spec(
     logger.info("API upload handler complete: spec_id=%s filename=%s", getattr(spec, "id", None), getattr(spec, "name", None))
     return serialize_spec(spec)
 
+@router.post("/upload", response_model=ApiSpecOut)
+async def upload_api_spec(
+    file: UploadFile = File(...),
+    name: Optional[str] = None,
+    version: Optional[str] = None,
+    description: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload an API spec file and store in S3 + DB.
+    """
+    contents = await file.read()
+
+    logger.info("API upload handler start: filename=%s", file.filename)
+    with tracer.start_as_current_span("api.upload_api_spec") as span:
+        span.set_attribute("file.size", len(contents) if contents is not None else 0)
+
+        spec = store_api_spec_file(
+            db=db,
+            file_bytes=contents,
+            filename=file.filename,
+            content_type=file.content_type,
+            tenant_id=tenant_id,
+            name=name,
+            version=version,
+            description=description,
+            parsed_schema=None,
+        )
+
+    logger.info(
+        "API upload handler complete: spec_id=%s filename=%s",
+        getattr(spec, "id", None),
+        getattr(spec, "name", None),
+    )
+    return serialize_spec(spec)
+
+@router.post("/{spec_id}/upload-new-version", response_model=ApiSpecOut)
+async def upload_new_api_spec_version(
+    spec_id: UUID,
+    file: UploadFile = File(...),
+    version: Optional[str] = None,
+    description: Optional[str] = None,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a new version of an existing API spec.
+
+    Behavior:
+      - validates that the spec belongs to the tenant
+      - parses + normalizes + stores the new spec file
+      - updates the existing ApiSpec row
+      - regenerates Markdown + HTML docs
+      - appends a VersionHistory row
+    """
+    contents = await file.read()
+    tenant_uuid = UUID(tenant_id)
+
+    logger.info(
+        "API new-version upload handler start: spec_id=%s filename=%s",
+        spec_id,
+        file.filename,
+    )
+
+    with tracer.start_as_current_span("api.upload_new_api_spec_version") as span:
+        span.set_attribute("spec.id", spec_id)
+        span.set_attribute("tenant.id", tenant_id)
+        span.set_attribute("file.size", len(contents) if contents is not None else 0)
+
+        # 1. Load existing spec for this tenant
+        spec = ApiSpecRepository.get_by_id(
+            db=db,
+            spec_id=spec_id,
+            tenant_id=tenant_uuid,
+        )
+
+        if not spec:
+            logger.warning(
+                "Spec not found for new-version upload spec_id=%s tenant_id=%s",
+                spec_id,
+                tenant_id,
+            )
+            raise HTTPException(status_code=404, detail="API spec not found")
+
+        # 2. Determine effective version / description
+        effective_version = version or spec.version
+        effective_description = description if description is not None else spec.description
+
+        # 3. Update the spec record + regenerate docs
+        updated_spec = update_api_spec_file(
+            db=db,
+            spec=spec,
+            file_bytes=contents,
+            filename=file.filename,
+            content_type=file.content_type,
+            tenant_id=tenant_id,
+            version=effective_version,
+            description=effective_description,
+        )
+
+        # 4. Append version history entry (best-effort)
+        try:
+            VersionHistoryRepository.create(
+                db,
+                tenant_id=tenant_id,
+                api_spec_id=spec_id,
+                version_label=effective_version or "unversioned",
+                changelog=f"Uploaded new version from file {file.filename}",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create version history for spec_id=%s tenant_id=%s",
+                spec_id,
+                tenant_id,
+            )
+
+    logger.info(
+        "API new-version upload handler complete: spec_id=%s filename=%s",
+        spec_id,
+        getattr(updated_spec, "name", None),
+    )
+
+    return serialize_spec(updated_spec)
 
 @router.get("/", response_model=List[ApiSpecOut])
 def list_api_specs(
@@ -143,7 +267,7 @@ def list_api_specs(
 
 @router.get("/{spec_id}", response_model=ApiSpecOut)
 def get_api_spec(
-    spec_id: int,
+    spec_id: UUID,
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -169,7 +293,7 @@ def get_api_spec(
 
 @router.post("/{spec_id}/regenerate-docs")
 def regenerate_docs(
-    spec_id: int,
+    spec_id: UUID,
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):

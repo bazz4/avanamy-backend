@@ -1,6 +1,7 @@
 from typing import Any
 
 from sqlalchemy.orm import Session
+from avanamy.models.api_spec import ApiSpec
 from avanamy.models.version_history import VersionHistory
 import logging
 from opentelemetry import trace
@@ -16,7 +17,7 @@ class VersionHistoryRepository:
         *,
         api_spec_id: int,
         diff: dict[str, Any] | None = None,
-        created_by_user_id: str | None = None,
+        changelog: str | None = None,
     ) -> VersionHistory:
         """
         Create a new version history record for an API spec.
@@ -44,7 +45,7 @@ class VersionHistoryRepository:
                 api_spec_id=api_spec_id,
                 version=next_version,
                 diff=diff,
-                created_by_user_id=created_by_user_id,
+                changelog=changelog,
             )
 
             db.add(version_row)
@@ -83,3 +84,27 @@ class VersionHistoryRepository:
         )
 
         return results
+    
+    @staticmethod
+    def next_version_for_spec(db: Session, api_spec_id: int) -> str:
+        """
+        Return the next version label (e.g., 'v1', 'v2', ...) for a given spec_id.
+        This is purely a label. The numeric VersionHistory.version is still
+        auto-managed in create().
+        """
+        with tracer.start_as_current_span("db.next_version_for_spec") as span:
+            span.set_attribute("api_spec_id", api_spec_id)
+
+            count = (
+                db.query(VersionHistory)
+                .filter(VersionHistory.api_spec_id == api_spec_id)
+                .count()
+            )
+
+        next_label = f"v{count + 1}"
+        logger.debug(
+            "Next version label for spec=%s is %s",
+            api_spec_id,
+            next_label,
+        )
+        return next_label

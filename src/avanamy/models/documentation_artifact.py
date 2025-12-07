@@ -9,7 +9,7 @@ class DocumentationArtifact(Base):
     __tablename__ = "documentation_artifacts"
 
     id = Column(Integer, primary_key=True, index=True)
-    api_spec_id = Column(Integer, ForeignKey("api_specs.id"), nullable=False)
+    api_spec_id = Column(UUID(as_uuid=True), ForeignKey("api_specs.id"), index=True)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
     artifact_type = Column(String, nullable=False)
     s3_path = Column(String, nullable=False)
