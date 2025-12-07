@@ -3,7 +3,7 @@
 import os
 import re
 import unicodedata
-from uuid import uuid4
+from uuid import UUID, uuid4
 from pathlib import Path
 
 
@@ -35,7 +35,7 @@ def get_file_extension(filename: str) -> str:
 
 def build_uploaded_spec_s3_key(
     tenant_id: str,
-    spec_id: int,
+    spec_id: UUID,
     spec_name: str,
     original_filename: str,
 ) -> str:
@@ -50,11 +50,11 @@ def build_uploaded_spec_s3_key(
     return f"tenants/{tenant_id}/specs/{spec_id}/{unique}-{slug}{ext}"
 
 
-def build_markdown_s3_key(tenant_id: str, spec_id: int, spec_name: str) -> str:
+def build_markdown_s3_key(tenant_id: str, spec_id: UUID, spec_name: str) -> str:
     slug = slugify_filename(spec_name)
     return f"tenants/{tenant_id}/docs/{spec_id}/{slug}.md"
 
 
-def build_html_s3_key(tenant_id: str, spec_id: int, spec_name: str) -> str:
+def build_html_s3_key(tenant_id: str, spec_id: UUID, spec_name: str) -> str:
     slug = slugify_filename(spec_name)
     return f"tenants/{tenant_id}/docs/{spec_id}/{slug}.html"

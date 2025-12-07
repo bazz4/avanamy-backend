@@ -5,6 +5,8 @@ from avanamy.models.documentation_artifact import DocumentationArtifact
 import logging
 from opentelemetry import trace
 
+from avanamy.services.s3 import upload_bytes
+
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -108,3 +110,29 @@ class DocumentationArtifactRepository:
         )
 
         return results
+    
+    @staticmethod
+    def store_markdown(db, tenant_id, api_spec_id, version_label, markdown: str):
+        key = f"docs/{tenant_id}/{api_spec_id}/{version_label}/api.md"
+        upload_bytes(key, markdown.encode("utf-8"))
+        # save to DB
+        artifact = DocumentationArtifact(
+            api_spec_id=api_spec_id,
+            artifact_type="markdown",
+            s3_path=key,
+        )
+        db.add(artifact)
+        db.commit()
+
+    @staticmethod
+    def store_html(db, tenant_id, api_spec_id, version_label, html: str):
+        key = f"docs/{tenant_id}/{api_spec_id}/{version_label}/api.html"
+        upload_bytes(key, html.encode("utf-8"))
+        artifact = DocumentationArtifact(
+            api_spec_id=api_spec_id,
+            artifact_type="html",
+            s3_path=key,
+        )
+        db.add(artifact)
+        db.commit()
+

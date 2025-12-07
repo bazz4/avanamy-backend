@@ -63,7 +63,7 @@ def get_db():
 # ========================================================================
 @router.get("/specs/{spec_id}", response_class=PlainTextResponse)
 def get_original_spec(
-    spec_id: int,
+    spec_id: UUID,
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -105,7 +105,7 @@ def get_original_spec(
 # Get raw markdown
 @router.get("/docs/{spec_id}/markdown", response_class=PlainTextResponse)
 def get_markdown_doc(
-    spec_id: int,
+    spec_id: UUID,
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -132,7 +132,7 @@ def get_markdown_doc(
 # Get generated HTML
 @router.get("/docs/{spec_id}/html", response_class=HTMLResponse)
 def get_docs_html(
-    spec_id: int,
+    spec_id: UUID,
     tenant_id: str = Depends(get_tenant_id),
     db: Session = Depends(get_db),
 ):
