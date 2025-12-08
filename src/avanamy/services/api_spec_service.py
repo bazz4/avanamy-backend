@@ -12,6 +12,7 @@ from opentelemetry import trace
 
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.api_spec import ApiSpec
+from avanamy.models.provider import Provider
 from avanamy.models.tenant import Tenant
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
@@ -135,12 +136,19 @@ def store_api_spec_file(
         # --------------------------------------------------------------
         # 6. MOVE from temp → final versioned location
         # --------------------------------------------------------------
+        provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
+        provider_slug = provider.slug
+        spec_slug = slugify_filename(spec.name)
+        ext = get_file_extension(filename)
+
         final_key = build_spec_upload_path(
             tenant_slug=tenant.slug,
+            provider_slug=provider_slug,
             product_slug=product.slug,
             version=version_label,
             spec_id=spec.id,
-            filename=filename,
+            spec_slug=spec_slug,
+            ext=ext,
         )
 
         copy_s3_object(temp_key, final_key)
@@ -256,12 +264,23 @@ def update_api_spec_file(
         # --------------------------------------------------------------------
         # 4. Upload new spec file to S3 under THIS version
         # --------------------------------------------------------------------
+        provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
+        if not provider:
+            logger.error("Provider not found for provider_id=%s", product.provider_id)
+            return None
+
+        provider_slug = provider.slug
+        spec_slug = slugify_filename(spec.name)
+        ext = get_file_extension(filename)
+
         final_key = build_spec_upload_path(
             tenant_slug=tenant.slug,
+            provider_slug=provider_slug,
             product_slug=product.slug,
             version=version_label,
             spec_id=spec.id,
-            filename=filename,
+            spec_slug=spec_slug,
+            ext=ext,
         )
 
         with tracer.start_as_current_span("service.s3_upload_spec_update") as s3_span:

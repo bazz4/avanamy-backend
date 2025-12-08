@@ -10,13 +10,13 @@ def build_tenant_root(tenant_slug: str) -> str:
     return f"tenants/{tenant_slug}"
 
 
-def build_product_root(tenant_slug: str, product_slug: str) -> str:
+def build_product_root(tenant_slug: str, provider_slug: str, product_slug: str) -> str:
     tenant_root = build_tenant_root(tenant_slug)
-    return f"{tenant_root}/api_products/{product_slug}"
+    return f"{tenant_root}/providers/{provider_slug}/api_products/{product_slug}"
 
 
-def build_version_root(tenant_slug: str, product_slug: str, version: str) -> str:
-    product_root = build_product_root(tenant_slug, product_slug)
+def build_version_root(tenant_slug: str, provider_slug: str, product_slug: str, version: str) -> str:
+    product_root = build_product_root(tenant_slug, provider_slug, product_slug)
     return f"{product_root}/versions/{version}"
 
 
@@ -26,54 +26,33 @@ def build_version_root(tenant_slug: str, product_slug: str, version: str) -> str
 
 def build_spec_upload_path(
     tenant_slug: str,
+    provider_slug: str,
     product_slug: str,
     version: str,
-    spec_id: int | UUID,
-    filename: str,
+    spec_id: UUID,
+    spec_slug: str,
+    ext: str
 ) -> str:
+
     """
-    S3 key for the uploaded spec file:
-    tenants/{tenant_slug}/api_products/{product_slug}/versions/{version}/specs/{spec_id}/{filename}
+    New S3 path for uploaded spec files:
+    tenants/{tenant_slug}/api_products/{product_slug}/versions/{version}/specs/{spec_slug}/{spec_id}-{spec_slug}{ext}
     """
-    version_root = build_version_root(tenant_slug, product_slug, version)
-
-    # keep original filename but slugify the "name" portion
-    base, ext = filename.rsplit(".", 1) if "." in filename else (filename, "")
-    safe_name = slugify_filename(base)
-    safe_ext = f".{ext}" if ext else ""
-
-    return f"{version_root}/specs/{spec_id}/{safe_name}{safe_ext}"
-
+    version_root = build_version_root(tenant_slug, provider_slug, product_slug, version)
+    filename = f"{spec_id}-{spec_slug}{ext}"
+    return f"{version_root}/specs/{spec_id}/{spec_id}-{spec_slug}{ext}"
 
 # ---------------------------------------------------------------------------
 # Docs (Markdown + HTML)
 # ---------------------------------------------------------------------------
 
-def build_docs_markdown_path(
-    tenant_slug: str,
-    product_slug: str,
-    version: str,
-) -> str:
-    """
-    S3 key for markdown docs:
-    tenants/{tenant_slug}/api_products/{product_slug}/versions/{version}/docs/markdown/index.md
-    """
-    version_root = build_version_root(tenant_slug, product_slug, version)
-    return f"{version_root}/docs/markdown/index.md"
+def build_docs_markdown_path(tenant_slug, provider_slug, product_slug, version, spec_id, spec_slug):
+    version_root = build_version_root(tenant_slug, provider_slug, product_slug, version)
+    return f"{version_root}/docs/markdown/{spec_id}-{spec_slug}.md"
 
-
-def build_docs_html_path(
-    tenant_slug: str,
-    product_slug: str,
-    version: str,
-) -> str:
-    """
-    S3 key for HTML docs:
-    tenants/{tenant_slug}/api_products/{product_slug}/versions/{version}/docs/html/index.html
-    """
-    version_root = build_version_root(tenant_slug, product_slug, version)
-    return f"{version_root}/docs/html/index.html"
-
+def build_docs_html_path(tenant_slug, provider_slug, product_slug, version, spec_id, spec_slug):
+    version_root = build_version_root(tenant_slug, provider_slug, product_slug, version)
+    return f"{version_root}/docs/html/{spec_id}-{spec_slug}.html"
 
 # ---------------------------------------------------------------------------
 # Embeddings

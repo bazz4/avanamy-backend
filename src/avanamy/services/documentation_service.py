@@ -9,6 +9,7 @@ from opentelemetry import trace
 from prometheus_client import Counter, REGISTRY
 
 from avanamy.models.documentation_artifact import DocumentationArtifact
+from avanamy.models.provider import Provider
 from avanamy.services.s3 import upload_bytes
 from avanamy.services.documentation_renderer import render_markdown_to_html
 from avanamy.services.documentation_generator import generate_markdown_from_normalized_spec
@@ -17,6 +18,7 @@ from avanamy.models.api_spec import ApiSpec
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.tenant import Tenant
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
+from avanamy.utils.filename_utils import slugify_filename
 from avanamy.utils.s3_paths import (
     build_docs_markdown_path,
     build_docs_html_path,
@@ -107,10 +109,17 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         # --------------------------------------------------------------------
         markdown = generate_markdown_from_normalized_spec(schema)
 
+        provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
+        provider_slug = provider.slug
+        spec_slug = slugify_filename(spec.name)
+
         md_key = build_docs_markdown_path(
             tenant_slug=tenant.slug,
+            provider_slug=provider_slug,
             product_slug=product.slug,
             version=version_label,
+            spec_id=spec.id,
+            spec_slug=spec_slug,
         )
         _, md_url = upload_bytes(
             md_key,
@@ -125,8 +134,11 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
 
         html_key = build_docs_html_path(
             tenant_slug=tenant.slug,
+            provider_slug=provider_slug,
             product_slug=product.slug,
             version=version_label,
+            spec_slug=spec_slug,
+            spec_id=str(spec.id),
         )
         _, html_url = upload_bytes(
             html_key,
@@ -213,10 +225,40 @@ def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
 
     version_label = VersionHistoryRepository.current_version_label_for_spec(db, spec.id)
 
+    # -----------------------------
+    # Compute provider + spec slugs
+    # -----------------------------
+    provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
+    if not provider:
+        logger.error("Provider not found in regenerate_all_docs_for_spec for provider_id=%s", product.provider_id)
+        return md_key, None
+
+    provider_slug = provider.slug
+    spec_slug = slugify_filename(spec.name)
+    spec_id = spec.id
+
+    # -----------------------------
+    # Build HTML docs S3 path
+    # -----------------------------
     html_key = build_docs_html_path(
         tenant_slug=tenant.slug,
+        provider_slug=provider_slug,
         product_slug=product.slug,
         version=version_label,
+        spec_id=spec_id,
+        spec_slug=spec_slug,
     )
 
-    return md_key, html_key
+    # -----------------------------
+    # Build Markdown docs S3 path
+    # -----------------------------
+    md_key_final = build_docs_markdown_path(
+        tenant_slug=tenant.slug,
+        provider_slug=provider_slug,
+        product_slug=product.slug,
+        version=version_label,
+        spec_id=spec_id,
+        spec_slug=spec_slug,
+    )
+
+    return md_key_final, html_key
