@@ -1,16 +1,26 @@
 # src/avanamy/services/documentation_service.py
+
 import json
 import logging
-from uuid import UUID, uuid4
+from uuid import UUID
+
+from sqlalchemy.orm import Session
 from opentelemetry import trace
 from prometheus_client import Counter, REGISTRY
 
+from avanamy.models.documentation_artifact import DocumentationArtifact
 from avanamy.services.s3 import upload_bytes
 from avanamy.services.documentation_renderer import render_markdown_to_html
 from avanamy.services.documentation_generator import generate_markdown_from_normalized_spec
 from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
 from avanamy.models.api_spec import ApiSpec
-from avanamy.utils.filename_utils import slugify_filename
+from avanamy.models.api_product import ApiProduct
+from avanamy.models.tenant import Tenant
+from avanamy.repositories.version_history_repository import VersionHistoryRepository
+from avanamy.utils.s3_paths import (
+    build_docs_markdown_path,
+    build_docs_html_path,
+)
 
 ARTIFACT_TYPE_API_MARKDOWN = "api_markdown"
 ARTIFACT_TYPE_API_HTML = "api_html"
@@ -29,45 +39,44 @@ def safe_counter(name, documentation, **kwargs):
 
 markdown_gen_counter = safe_counter(
     "avanamy_markdown_generation_total",
-    "Number of markdown documentation generations"
+    "Number of markdown documentation generations",
 )
 
 
-def generate_and_store_markdown_for_spec(db, spec: ApiSpec):
+def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
     """
-    Generate Markdown + HTML documentation for a spec.
-    Upload *both* to S3.
-    Update spec.documentation_html_s3_path.
-    Store Markdown as an artifact.
-    Returns the markdown key.
+    Generate Markdown + HTML documentation for the *current* version of a spec.
+
+    - Uses VersionHistoryRepository.current_version_label_for_spec to get 'vN'
+    - Uses tenant + product slugs for S3 layout
+    - Uploads markdown + HTML to S3
+    - Upserts documentation_artifacts (no duplicates)
+    - Updates spec.documentation_html_s3_path
     """
     with tracer.start_as_current_span("docs.generate_and_store_markdown_for_spec") as span:
         span.set_attribute("api_spec.id", spec.id)
         span.set_attribute("tenant.id", str(getattr(spec, "tenant_id", "")))
 
         markdown_gen_counter.inc()
-        logger.info(f"Generating documentation for spec {spec.id}")
+        logger.info("Generating documentation for spec %s", spec.id)
 
         if not spec.parsed_schema:
-            logger.warning("No parsed_schema; skipping documentation generation")
+            logger.warning("No parsed_schema; skipping documentation generation for spec %s", spec.id)
             return None
 
         # Parse stored JSON
         try:
             schema = json.loads(spec.parsed_schema)
         except Exception:
-            logger.exception("parsed_schema is not valid JSON")
+            logger.exception("parsed_schema is not valid JSON for spec %s", spec.id)
             return None
-        
+
         # Tenant safety: requires tenant_id on every generated artifact
         tenant_id = getattr(spec, "tenant_id", None)
         if not tenant_id:
-            logger.error(
-                "Cannot generate documentation: spec %s has no tenant_id",
-                spec.id
-            )
+            logger.error("Cannot generate documentation: spec %s has no tenant_id", spec.id)
             return None
-
+        logger.info("tenant_id raw value on spec = %s (%s)", tenant_id, type(tenant_id))
         # Ensure proper UUID type (Postgres UUID type accepts python UUID)
         try:
             tenant_uuid = UUID(str(tenant_id))
@@ -75,97 +84,33 @@ def generate_and_store_markdown_for_spec(db, spec: ApiSpec):
             logger.exception(
                 "Invalid tenant_id value on spec %s: %s",
                 spec.id,
-                tenant_id
+                tenant_id,
             )
             return None
-
-        if not tenant_id:
-            logger.error("Spec %s has no tenant_id; cannot generate tenant-scoped docs", spec.id)
+        logger.info("tenant_uuid raw value on spec = %s (%s)", tenant_uuid, type(tenant_uuid))
+        # Resolve product + tenant slugs
+        product = db.query(ApiProduct).filter(ApiProduct.id == spec.api_product_id).first()
+        if not product:
+            logger.error("ApiProduct not found for spec_id=%s", spec.id)
             return None
 
-        # --- Step 1: Markdown ---
+        tenant = db.query(Tenant).filter(Tenant.id == product.tenant_id).first()
+        if not tenant:
+            logger.error("Tenant not found for product_id=%s", product.id)
+            return None
+
+        # Current label for this spec (e.g., "v1", "v2")
+        version_label = VersionHistoryRepository.current_version_label_for_spec(db, spec.id)
+
+        # --------------------------------------------------------------------
+        # 1. Markdown
+        # --------------------------------------------------------------------
         markdown = generate_markdown_from_normalized_spec(schema)
 
-        md_key = (
-            f"tenants/{tenant_id}/docs/{spec.id}/"
-            f"{uuid4()}-{slugify_filename(spec.name)}.md"
-        )
-        _, md_url = upload_bytes(
-            md_key,
-            markdown.encode("utf-8"),
-            content_type="text/markdown"
-        )
-
-        # --- Step 2: HTML ---
-        html = render_markdown_to_html(markdown, title=f"{spec.name} API Docs")
-
-        html_key = (
-            f"tenants/{tenant_id}/docs/{spec.id}/"
-            f"{uuid4()}-{slugify_filename(spec.name)}.html"
-        )
-        _, html_url = upload_bytes(
-            html_key,
-            html.encode("utf-8"),
-            content_type="text/html"
-        )
-
-        # --- Step 3a: Save Markdown artifact in DB ---
-        repo = DocumentationArtifactRepository()
-        repo.create(
-            db,
-            tenant_id=tenant_uuid,
-            api_spec_id=spec.id,
-            artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
-            s3_path=md_key,
-        )
-
-        # --- Step 3b: Save HTML artifact in DB ---
-        repo.create(
-            db,
-            tenant_id=tenant_uuid,
-            api_spec_id=spec.id,
-            artifact_type=ARTIFACT_TYPE_API_HTML,
-            s3_path=html_key,
-        )
-
-        # --- Step 4: Update spec w/ HTML URL ---
-        spec.documentation_html_s3_path = html_url
-        db.commit()
-
-        # Important: Do NOT refresh in tests (spec is not persisted)
-        return md_key
-
-def regenerate_all_docs_for_spec(db, spec):
-    """
-    Regenerate BOTH markdown and HTML documentation for a spec.
-    Stores both artifacts in S3 and creates repo entries.
-    Returns (markdown_key, html_key).
-    """
-    with tracer.start_as_current_span("docs.regenerate_all") as span:
-        span.set_attribute("spec.id", spec.id)
-        logger.info("Regenerating documentation for spec_id=%s", spec.id)
-
-        if not spec.parsed_schema:
-            logger.warning("Spec %s has no parsed_schema. Cannot regenerate docs.", spec.id)
-            return None, None
-
-        try:
-            schema = json.loads(spec.parsed_schema)
-        except Exception:
-            logger.exception("Parsed schema for spec_id=%s is invalid JSON", spec.id)
-            return None, None
-
-        tenant_id = getattr(spec, "tenant_id", None)
-        if not tenant_id:
-            logger.error("Spec %s has no tenant_id; cannot regenerate tenant-scoped docs", spec.id)
-            return None, None
-
-        # --- Step 1: Generate markdown ---
-        markdown = generate_markdown_from_normalized_spec(schema)
-
-        md_key = (
-            f"tenants/{tenant_id}/docs/{spec.id}/"
-            f"{uuid4()}-{slugify_filename(spec.name)}.md"
+        md_key = build_docs_markdown_path(
+            tenant_slug=tenant.slug,
+            product_slug=product.slug,
+            version=version_label,
         )
         _, md_url = upload_bytes(
             md_key,
@@ -173,21 +118,15 @@ def regenerate_all_docs_for_spec(db, spec):
             content_type="text/markdown",
         )
 
-        md_repo = DocumentationArtifactRepository()
-        md_repo.create(
-            db,
-            api_spec_id=spec.id,
-            tenant_id=tenant_id,
-            artifact_type="api_markdown",
-            s3_path=md_key,
-        )
+        # --------------------------------------------------------------------
+        # 2. HTML
+        # --------------------------------------------------------------------
+        html = render_markdown_to_html(markdown, title=f"{spec.name} API Docs")
 
-        # --- Step 2: Generate HTML ---
-        html = render_markdown_to_html(markdown)
-
-        html_key = (
-            f"tenants/{tenant_id}/docs/{spec.id}/"
-            f"{uuid4()}-{slugify_filename(spec.name)}.html"
+        html_key = build_docs_html_path(
+            tenant_slug=tenant.slug,
+            product_slug=product.slug,
+            version=version_label,
         )
         _, html_url = upload_bytes(
             html_key,
@@ -195,14 +134,89 @@ def regenerate_all_docs_for_spec(db, spec):
             content_type="text/html",
         )
 
-        html_repo = DocumentationArtifactRepository()
-        html_repo.create(
-            db,
-            api_spec_id=spec.id,
-            tenant_id=tenant_id,
-            artifact_type="api_html",
-            s3_path=html_key,
-        )
+        # --------------------------------------------------------------------
+        # 3. UPSERT documentation artifacts
+        # --------------------------------------------------------------------
+        repo = DocumentationArtifactRepository()
 
+        # Markdown artifact
+        existing_md = repo.get_latest(
+            db=db,
+            api_spec_id=spec.id,
+            tenant_id=str(tenant_uuid),
+            artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
+        )
+        if existing_md:
+            existing_md.s3_path = md_key
+        else:
+            repo.create(
+                db=db,
+                tenant_id=tenant_uuid,
+                api_spec_id=spec.id,
+                artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
+                s3_path=md_key,
+            )
+
+        # HTML artifact
+        existing_html = repo.get_latest(
+            db=db,
+            tenant_id=str(tenant_uuid),
+            api_spec_id=spec.id,
+            artifact_type=ARTIFACT_TYPE_API_HTML,
+        )
+        if existing_html:
+            existing_html.s3_path = html_key
+        else:
+            repo.create(
+                db=db,
+                tenant_id=tenant_uuid,
+                api_spec_id=spec.id,
+                artifact_type=ARTIFACT_TYPE_API_HTML,
+                s3_path=html_key,
+            )
+
+        # --------------------------------------------------------------------
+        # 4. Update spec with HTML URL and commit
+        # --------------------------------------------------------------------
+        spec.documentation_html_s3_path = html_url
         db.commit()
-        return md_key, html_key
+
+        return md_key
+
+
+def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
+    """
+    Regenerate docs for the current version of a spec *without* creating a new
+    VersionHistory row. This is essentially an idempotent re-run of
+    generate_and_store_markdown_for_spec.
+    """
+    with tracer.start_as_current_span("docs.regenerate_all") as span:
+        span.set_attribute("spec.id", spec.id)
+        logger.info("Regenerating documentation for spec_id=%s", spec.id)
+
+    md_key = generate_and_store_markdown_for_spec(db, spec)
+
+    # Derive html_key from the same version/paths used above
+    if md_key is None:
+        return None, None
+
+    # To compute html_key, we need version + slugs again
+    product = db.query(ApiProduct).filter(ApiProduct.id == spec.api_product_id).first()
+    if not product:
+        logger.error("ApiProduct not found in regenerate_all_docs_for_spec for spec_id=%s", spec.id)
+        return md_key, None
+
+    tenant = db.query(Tenant).filter(Tenant.id == product.tenant_id).first()
+    if not tenant:
+        logger.error("Tenant not found in regenerate_all_docs_for_spec for product_id=%s", product.id)
+        return md_key, None
+
+    version_label = VersionHistoryRepository.current_version_label_for_spec(db, spec.id)
+
+    html_key = build_docs_html_path(
+        tenant_slug=tenant.slug,
+        product_slug=product.slug,
+        version=version_label,
+    )
+
+    return md_key, html_key

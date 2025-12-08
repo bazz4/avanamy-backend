@@ -8,7 +8,7 @@ from prometheus_client import Counter, REGISTRY
 from uuid import UUID
 from typing import List, Optional, Dict, Any
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Form, Query, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -21,7 +21,6 @@ from avanamy.services.documentation_service import regenerate_all_docs_for_spec
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
 from avanamy.api.dependencies.tenant import get_tenant_id
 from avanamy.db.database import get_db
-from avanamy.services.s3 import download_bytes
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -86,6 +85,8 @@ class ApiSpecOut(BaseModel):
 @router.post("/upload", response_model=ApiSpecOut)
 async def upload_api_spec(
     file: UploadFile = File(...),
+    api_product_id: UUID = Query(...),   # ⬅️ REQUIRED
+    provider_id: Optional[UUID] = Query(None),  # ⬅️ OPTIONAL
     name: Optional[str] = None,
     version: Optional[str] = None,
     description: Optional[str] = None,
@@ -101,49 +102,26 @@ async def upload_api_spec(
     with tracer.start_as_current_span("api.upload_api_spec") as span:
         span.set_attribute("file.size", len(contents) if contents is not None else 0)
 
-        spec = store_api_spec_file(
-            db=db,
-            file_bytes=contents,
-            filename=file.filename,
-            content_type=file.content_type,
-            tenant_id=tenant_id,
-            name=name,
-            version=version,
-            description=description,
-            parsed_schema=None,
-        )
+    spec = store_api_spec_file(
+        db=db,
+        file_bytes=contents,
+        filename=file.filename,
+        content_type=file.content_type,
+        tenant_id=tenant_id,
+        api_product_id=api_product_id,   
+        provider_id=provider_id,         
+        name=name,
+        version=version,
+        description=description,
+        parsed_schema=None,
+    )
 
-    logger.info("API upload handler complete: spec_id=%s filename=%s", getattr(spec, "id", None), getattr(spec, "name", None))
-    return serialize_spec(spec)
-
-@router.post("/upload", response_model=ApiSpecOut)
-async def upload_api_spec(
-    file: UploadFile = File(...),
-    name: Optional[str] = None,
-    version: Optional[str] = None,
-    description: Optional[str] = None,
-    tenant_id: str = Depends(get_tenant_id),
-    db: Session = Depends(get_db),
-):
-    """
-    Upload an API spec file and store in S3 + DB.
-    """
-    contents = await file.read()
-
-    logger.info("API upload handler start: filename=%s", file.filename)
-    with tracer.start_as_current_span("api.upload_api_spec") as span:
-        span.set_attribute("file.size", len(contents) if contents is not None else 0)
-
-        spec = store_api_spec_file(
-            db=db,
-            file_bytes=contents,
-            filename=file.filename,
-            content_type=file.content_type,
-            tenant_id=tenant_id,
-            name=name,
-            version=version,
-            description=description,
-            parsed_schema=None,
+    # 🚨 Prevent serialize_spec(None)
+    if spec is None:
+        logger.error("upload_api_spec: spec creation failed (store_api_spec_file returned None)")
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to create API spec. Ensure api_product_id is set and valid."
         )
 
     logger.info(
@@ -151,6 +129,7 @@ async def upload_api_spec(
         getattr(spec, "id", None),
         getattr(spec, "name", None),
     )
+
     return serialize_spec(spec)
 
 @router.post("/{spec_id}/upload-new-version", response_model=ApiSpecOut)
@@ -216,22 +195,6 @@ async def upload_new_api_spec_version(
             version=effective_version,
             description=effective_description,
         )
-
-        # 4. Append version history entry (best-effort)
-        try:
-            VersionHistoryRepository.create(
-                db,
-                tenant_id=tenant_id,
-                api_spec_id=spec_id,
-                version_label=effective_version or "unversioned",
-                changelog=f"Uploaded new version from file {file.filename}",
-            )
-        except Exception:
-            logger.exception(
-                "Failed to create version history for spec_id=%s tenant_id=%s",
-                spec_id,
-                tenant_id,
-            )
 
     logger.info(
         "API new-version upload handler complete: spec_id=%s filename=%s",
