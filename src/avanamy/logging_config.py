@@ -30,26 +30,35 @@ class TraceIdFilter(logging.Filter):
 def configure_logging():
     """
     Configure application-wide logging.
-    Outputs to stdout in a structured, container-friendly format.
+    Ensures trace_id/span_id always exist to avoid KeyError,
+    even when logs originate before middleware or from external libraries.
     """
+
+    class SafeFormatter(logging.Formatter):
+        def format(self, record):
+            # Ensure both fields exist to avoid KeyError
+            if not hasattr(record, "trace_id"):
+                record.trace_id = "-"
+            if not hasattr(record, "span_id"):
+                record.span_id = "-"
+            return super().format(record)
 
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
-    # Include trace/span ids in the formatted output so logs can be correlated
-    # with traces.
     fmt = "%(asctime)s [%(levelname)s] %(name)s [trace=%(trace_id)s span=%(span_id)s] - %(message)s"
 
-    logging.basicConfig(
-        level=log_level,
-        format=fmt,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(SafeFormatter(fmt))
 
-    # Attach filter to root logger so all records gain trace/span ids
-    logging.getLogger().addFilter(TraceIdFilter())
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    root_logger.handlers.clear()
 
-    # Optional: reduce overly noisy logs (e.g., boto3)
+    # Attach handler + TraceIdFilter
+    handler.addFilter(TraceIdFilter())
+    root_logger.addHandler(handler)
+
+    # Optional noise reduction
     logging.getLogger("botocore").setLevel(logging.WARNING)
     logging.getLogger("boto3").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)

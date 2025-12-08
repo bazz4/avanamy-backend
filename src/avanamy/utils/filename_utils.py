@@ -32,29 +32,3 @@ def get_file_extension(filename: str) -> str:
     _, ext = os.path.splitext(filename or "")
     return ext.lower()
 
-
-def build_uploaded_spec_s3_key(
-    tenant_id: str,
-    spec_id: UUID,
-    spec_name: str,
-    original_filename: str,
-) -> str:
-    """
-    Deterministic S3 key for uploaded API spec files under:
-    tenants/<tenant_id>/specs/<spec_id>/<uuid>-<slug><ext>
-    """
-    slug = slugify_filename(spec_name)
-    ext = get_file_extension(original_filename)
-    unique = uuid4()
-
-    return f"tenants/{tenant_id}/specs/{spec_id}/{unique}-{slug}{ext}"
-
-
-def build_markdown_s3_key(tenant_id: str, spec_id: UUID, spec_name: str) -> str:
-    slug = slugify_filename(spec_name)
-    return f"tenants/{tenant_id}/docs/{spec_id}/{slug}.md"
-
-
-def build_html_s3_key(tenant_id: str, spec_id: UUID, spec_name: str) -> str:
-    slug = slugify_filename(spec_name)
-    return f"tenants/{tenant_id}/docs/{spec_id}/{slug}.html"
