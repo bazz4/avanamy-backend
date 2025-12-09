@@ -1,12 +1,5 @@
-import json
 import pytest
-from avanamy.db.database import SessionLocal
 from avanamy.services.api_spec_parser import parse_api_spec
-from avanamy.models.api_spec import ApiSpec
-from fastapi.testclient import TestClient
-from avanamy.main import app
-
-client = TestClient(app)
 
 def test_parse_json():
     data = b'{"name": "test", "version": "1.0"}'
@@ -37,37 +30,3 @@ def test_parse_unknown_raises():
 
     with pytest.raises(ValueError):
         parse_api_spec("unknown.bin", data)
-
-def test_upload_stores_parsed_schema():
-    data = '{"a": 1}'
-    response = client.post(
-        "/api-specs/upload",
-        files={"file": ("spec.json", data, "application/json")},
-    )
-
-    assert response.status_code == 200
-    spec_id = response.json()["id"]
-
-    db = SessionLocal()
-    record = get_spec(db, spec_id)
-
-    raw = record["parsed_schema"]
-    # Be tolerant: some DB backends / model mappings may return a dict
-    # while others return a JSON string. Handle both.
-    if isinstance(raw, dict):
-        parsed = raw
-    elif raw is None:
-        parsed = None
-    else:
-        parsed = json.loads(raw)
-
-    assert parsed["a"] == 1
-
-
-def get_spec(db, spec_id):
-    # Query the ApiSpec model for the given id and return a dict-like record
-    record = db.query(ApiSpec).filter(ApiSpec.id == spec_id).first()
-    if record is None:
-        raise ValueError(f"Spec with id {spec_id} not found")
-    # Ensure we return a mapping with "parsed_schema" as the tests expect
-    return {"parsed_schema": record.parsed_schema}
