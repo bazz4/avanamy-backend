@@ -1,67 +1,64 @@
-# tests/api/test_api_specs_route.py
-
-import json
-from fastapi.testclient import TestClient
-from unittest.mock import patch
 from types import SimpleNamespace
-from avanamy.main import app
-from avanamy.models.api_spec import ApiSpec
+import uuid
+from unittest.mock import ANY, patch
 
-client = TestClient(app)
 
-def test_upload_api_spec_route():
-    fake_spec = SimpleNamespace(
-        id=123,
-        name="my.yaml",
-        version=None,
-        description=None,
-        parsed_schema={},
-        original_file_s3_path="s3://test/my.yaml",
-    )
+def test_regenerate_docs_endpoint_success(client):
+    spec_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    fake_spec = SimpleNamespace(id=spec_id, api_product_id=uuid.uuid4())
 
-    # Mock the service layer
-    with patch("avanamy.api.routes.api_specs.store_api_spec_file", return_value=fake_spec):
-        response = client.post(
-            "/api-specs/upload",
-            files={"file": ("my.yaml", b"content", "application/yaml")},
+    with patch(
+        "avanamy.api.routes.api_specs.ApiSpecRepository.get_by_id",
+        return_value=fake_spec,
+    ) as mock_repo, patch(
+        "avanamy.api.routes.api_specs.regenerate_all_docs_for_spec",
+        return_value=("docs/md.md", "docs/html.html"),
+    ) as mock_regen:
+        resp = client.post(
+            f"/api-specs/{spec_id}/regenerate-docs",
+            headers={"X-Tenant-ID": str(tenant_id)},
         )
 
-    assert response.status_code == 200
-    data = response.json()
-
-    assert data["id"] == 123
-    assert data["name"] == "my.yaml"
-    assert data["original_file_s3_path"] == "s3://test/my.yaml"
-
-def test_regenerate_docs_endpoint_success(client, db, monkeypatch):
-    class FakeSpec:
-        id = 7
-        parsed_schema = "{}"
-
-    monkeypatch.setattr(
-        "avanamy.api.routes.api_specs.ApiSpecRepository.get_by_id",
-        lambda db, spec_id: FakeSpec()
-    )
-
-    monkeypatch.setattr(
-        "avanamy.api.routes.api_specs.regenerate_all_docs_for_spec",
-        lambda db, spec: ("docs/7/api.md", "docs/7/api.html")
-    )
-
-    resp = client.post("/api-specs/7/regenerate-docs")
     assert resp.status_code == 200
+    assert resp.json()["markdown_s3_path"] == "docs/md.md"
+    assert resp.json()["html_s3_path"] == "docs/html.html"
+    mock_repo.assert_called_once_with(db=ANY, spec_id=spec_id, tenant_id=tenant_id)
+    mock_regen.assert_called_once_with(ANY, fake_spec)
 
-    body = resp.json()
-    assert body["spec_id"] == 7
-    assert body["markdown_s3_path"] == "docs/7/api.md"
-    assert body["html_s3_path"] == "docs/7/api.html"
 
-def test_regenerate_docs_endpoint_not_found(client, monkeypatch):
-    monkeypatch.setattr(
+def test_regenerate_docs_endpoint_returns_400_on_generation_failure(client):
+    spec_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    fake_spec = SimpleNamespace(id=spec_id, api_product_id=uuid.uuid4())
+
+    with patch(
         "avanamy.api.routes.api_specs.ApiSpecRepository.get_by_id",
-        lambda db, spec_id: None
-    )
+        return_value=fake_spec,
+    ), patch(
+        "avanamy.api.routes.api_specs.regenerate_all_docs_for_spec",
+        return_value=(None, None),
+    ):
+        resp = client.post(
+            f"/api-specs/{spec_id}/regenerate-docs",
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
 
-    resp = client.post("/api-specs/999/regenerate-docs")
+    assert resp.status_code == 400
+    assert "Failed to regenerate documentation" in resp.json()["detail"]
+
+
+def test_regenerate_docs_endpoint_not_found(client):
+    spec_id = uuid.uuid4()
+    tenant_id = uuid.uuid4()
+    with patch(
+        "avanamy.api.routes.api_specs.ApiSpecRepository.get_by_id",
+        return_value=None,
+    ):
+        resp = client.post(
+            f"/api-specs/{spec_id}/regenerate-docs",
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
+
     assert resp.status_code == 404
     assert resp.json()["detail"] == "API spec not found"

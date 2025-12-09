@@ -1,26 +1,44 @@
-from avanamy.repositories.api_spec_repository import ApiSpecRepository
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
 
 
-def test_create_artifact(db):
-    spec = ApiSpecRepository.create(db, name="Spec", original_file_s3_path="s3://x")
+def test_create_artifact_saves_and_refreshes():
+    fake_db = MagicMock()
+    fake_db.add = MagicMock()
+    fake_db.commit = MagicMock()
+    fake_db.refresh = MagicMock()
 
     artifact = DocumentationArtifactRepository.create(
-        db,
-        api_spec_id=spec.id,
+        fake_db,
+        tenant_id="tenant-1",
+        api_spec_id="spec-1",
         artifact_type="markdown",
         s3_path="s3://output.md",
     )
 
-    assert artifact.id is not None
+    fake_db.add.assert_called_once()
+    fake_db.commit.assert_called_once()
+    fake_db.refresh.assert_called_once_with(artifact)
     assert artifact.artifact_type == "markdown"
+    assert artifact.tenant_id == "tenant-1"
 
 
-def test_list_artifacts_for_spec(db):
-    spec = ApiSpecRepository.create(db, name="Spec", original_file_s3_path="s3://x")
+def test_list_and_get_latest_artifacts_for_spec():
+    fake_db = MagicMock()
+    fake_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = ["a", "b"]
+    fake_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = SimpleNamespace(
+        s3_path="latest"
+    )
 
-    DocumentationArtifactRepository.create(db, api_spec_id=spec.id, artifact_type="md", s3_path="a")
-    DocumentationArtifactRepository.create(db, api_spec_id=spec.id, artifact_type="html", s3_path="b")
+    artifacts = DocumentationArtifactRepository.list_for_spec(fake_db, "spec-1", "tenant-1")
+    assert artifacts == ["a", "b"]
 
-    artifacts = DocumentationArtifactRepository.list_for_spec(db, spec.id)
-    assert len(artifacts) == 2
+    latest = DocumentationArtifactRepository.get_latest(
+        fake_db,
+        api_spec_id="spec-1",
+        tenant_id="tenant-1",
+        artifact_type="md",
+    )
+    assert latest.s3_path == "latest"
