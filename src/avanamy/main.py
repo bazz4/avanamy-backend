@@ -6,6 +6,11 @@ from avanamy.api.routes import schemas
 from avanamy.api.routes.api_specs import router as api_specs_router
 from avanamy.api.routes.docs import router as docs_router
 import avanamy.models.tenant  # ensure models load for Alembic
+from avanamy.api.routes.tenants import router as tenants_router
+from avanamy.api.routes.providers import router as providers_router
+from avanamy.api.routes.products import router as products_router
+from avanamy.api.routes.spec_versions import router as spec_versions_router
+from avanamy.api.routes.spec_docs import router as spec_docs_router
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -23,9 +28,11 @@ app = FastAPI(debug=True)
 # All API spec + docs operations are now here
 app.include_router(api_specs_router)
 app.include_router(docs_router)
-
-# REMOVE THIS — no longer valid:
-# app.include_router(docs_router)
+app.include_router(providers_router)
+app.include_router(tenants_router)
+app.include_router(spec_versions_router)
+app.include_router(products_router) 
+app.include_router(spec_docs_router)
 
 # ------------------------------------------------------------------
 # Observability
