@@ -72,3 +72,20 @@ class DocumentationArtifactRepository:
             .order_by(DocumentationArtifact.created_at.desc())
             .all()
         )
+
+    @staticmethod
+    def get_latest_by_spec_id(
+        db: Session,
+        api_spec_id: str,
+        tenant_id: str,
+        artifact_type: str,
+    ) -> DocumentationArtifact | None:
+        """
+        Alias/wrapper for get_latest, matching the naming expected by route handlers.
+        """
+        return DocumentationArtifactRepository.get_latest(
+            db,
+            api_spec_id=api_spec_id,
+            tenant_id=tenant_id,
+            artifact_type=artifact_type,
+        )
