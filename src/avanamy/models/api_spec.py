@@ -1,6 +1,7 @@
+import uuid
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey
-from sqlalchemy import Column, Integer, String, Text, DateTime
+from sqlalchemy import Column, String, Text, DateTime
 from sqlalchemy.sql import func
 from avanamy.db.database import Base
 
@@ -9,7 +10,12 @@ import sqlalchemy as sa
 class ApiSpec(Base):
     __tablename__ = "api_specs"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+    )
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True)
 
     provider_id = Column(
