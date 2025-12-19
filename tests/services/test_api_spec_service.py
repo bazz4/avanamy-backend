@@ -3,6 +3,8 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from avanamy.models.api_spec import ApiSpec
+from avanamy.models.version_history import VersionHistory
 from avanamy.services.api_spec_service import (
     store_api_spec_file,
     update_api_spec_file,
@@ -269,3 +271,148 @@ def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
     assert updated.description == "new desc"
     assert json.loads(updated.parsed_schema)["paths"] == {"root": {}}
     upload_calls.assert_called_once()
+
+
+def test_store_api_spec_file_reuses_existing_spec_for_same_product(
+    db,
+    tenant_provider_product,
+    monkeypatch,
+):
+    """
+    Verify that uploading a spec for the same tenant + provider + api_product
+    reuses the existing ApiSpec instead of creating a new one.
+
+    Business rules:
+    - Each ApiProduct can have only one ApiSpec
+    - Uploading a spec for the same tenant + provider + api_product must reuse the existing ApiSpec
+    - No new ApiSpec row should be created
+    - A new VersionHistory row should be created
+    """
+    tenant, provider, product = tenant_provider_product
+
+    # -------------------------
+    # Stub S3 operations so nothing touches real storage
+    # -------------------------
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        lambda *args, **kwargs: ("s3/key", "s3://bucket/s3/key"),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.copy_s3_object",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.delete_s3_object",
+        lambda *args, **kwargs: None,
+    )
+
+    # Silence doc generation
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        lambda *args, **kwargs: None,
+    )
+
+    # Stub parse and normalize functions
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.parse_api_spec",
+        lambda filename, raw: {"openapi": "3.0.0", "info": {"title": "Test"}, "paths": {}},
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.normalize_api_spec",
+        lambda parsed: parsed,
+    )
+
+    # -------------------------
+    # Prepare repository fakes and counters
+    # -------------------------
+    created_specs = []
+
+    def _create_side_effect(db_session, **kwargs):
+        import uuid as _uuid
+        from avanamy.models.api_spec import ApiSpec
+
+        # Create a real ApiSpec instance so it can be committed
+        spec_obj = ApiSpec(
+            id=_uuid.uuid4(),
+            tenant_id=kwargs.get("tenant_id"),
+            api_product_id=kwargs.get("api_product_id"),
+            provider_id=kwargs.get("provider_id"),
+            name=kwargs.get("name"),
+            parsed_schema=kwargs.get("parsed_schema"),
+            original_file_s3_path=kwargs.get("original_file_s3_path"),
+            version=None,
+        )
+        db_session.add(spec_obj)
+        db_session.commit()
+        db_session.refresh(spec_obj)
+        created_specs.append(spec_obj)
+        return spec_obj
+
+    create_mock = MagicMock(side_effect=_create_side_effect)
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.ApiSpecRepository.create",
+        create_mock,
+    )
+
+    # get_by_product returns the created spec once available
+    def _get_by_product(db_session, tenant_id, api_product_id, provider_id=None):
+        return created_specs[0] if created_specs else None
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.ApiSpecRepository.get_by_product",
+        _get_by_product,
+    )
+
+    # VersionHistory create should be called twice; return incremental versions
+    vh_counter = {"n": 0}
+
+    def _vh_side_effect(db, api_spec_id, changelog=None, diff=None):
+        vh_counter["n"] += 1
+        return SimpleNamespace(version=vh_counter["n"])
+
+    vh_mock = MagicMock(side_effect=_vh_side_effect)
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.VersionHistoryRepository.create",
+        vh_mock,
+    )
+
+    # -------------------------
+    # Call service twice using real UUID objects
+    # -------------------------
+    spec1 = store_api_spec_file(
+        db=db,
+        tenant_id=tenant.id,
+        provider_id=provider.id,
+        api_product_id=product.id,
+        filename="spec.yaml",
+        file_bytes=b"openapi: 3.0.0\ninfo:\n  title: Test\npaths: {}",
+        content_type="application/yaml",
+        name="Menu API",
+    )
+
+    spec2 = store_api_spec_file(
+        db=db,
+        tenant_id=tenant.id,
+        provider_id=provider.id,
+        api_product_id=product.id,
+        filename="spec.yaml",
+        file_bytes=b"openapi: 3.0.0\ninfo:\n  title: Test v2\npaths: {}",
+        content_type="application/yaml",
+        name="Menu API",
+    )
+
+    # -------------------------
+    # Assertions per business rules
+    # -------------------------
+    # Same ApiSpec reused
+    assert str(spec1.id) == str(spec2.id)
+
+    # ApiSpecRepository.create should have been called only once
+    assert create_mock.call_count == 1
+
+    # VersionHistoryRepository.create should have been invoked twice
+    assert vh_mock.call_count == 2
