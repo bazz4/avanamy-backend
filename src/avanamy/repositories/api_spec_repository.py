@@ -184,6 +184,24 @@ class ApiSpecRepository:
             )
             .first()
         )
+    
+    @staticmethod
+    def get_by_product(
+        db: Session,
+        *,
+        tenant_id: UUID,
+        provider_id: UUID,
+        api_product_id: UUID,
+    ) -> ApiSpec | None:
+        return (
+            db.query(ApiSpec)
+            .filter(
+                ApiSpec.tenant_id == tenant_id,
+                ApiSpec.provider_id == provider_id,
+                ApiSpec.api_product_id == api_product_id,
+            )
+            .one_or_none()
+        )
 
     @staticmethod
     def list_for_tenant(db: Session, tenant_id: str):

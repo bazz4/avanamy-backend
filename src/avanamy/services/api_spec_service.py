@@ -69,6 +69,29 @@ def store_api_spec_file(
         span.set_attribute("filename", filename)
         span.set_attribute("file.size", len(file_bytes) if file_bytes else 0)
 
+        existing_spec = ApiSpecRepository.get_by_product(
+            db,
+            tenant_id=tenant_id,
+            provider_id=provider_id,
+            api_product_id=api_product_id,
+        )
+
+        if existing_spec:
+            logger.info(
+                "Spec already exists for product %s; treating upload as update (spec_id=%s)",
+                api_product_id,
+                existing_spec.id,
+            )
+            return update_api_spec_file(
+                db,
+                spec=existing_spec,
+                file_bytes=file_bytes,
+                filename=filename,
+                content_type=content_type,
+                tenant_id=tenant_id,
+                description=description,
+            )
+
         # --------------------------------------------------------------
         # 1. Parse → Normalize
         # --------------------------------------------------------------
@@ -89,6 +112,36 @@ def store_api_spec_file(
             f"{uuid4()}-{slugify_filename(name or filename)}{get_file_extension(filename)}"
         )
         _, temp_url = upload_bytes(temp_key, file_bytes, content_type=content_type)
+
+        # --------------------------------------------------------------
+        # 3a. Enforce one-spec-per-product invariant
+        # --------------------------------------------------------------
+        existing_spec = ApiSpecRepository.get_by_product(
+            db,
+            tenant_id=tenant_id,
+            provider_id=provider_id,
+            api_product_id=api_product_id,
+        )
+
+        if existing_spec:
+            logger.info(
+                "Spec already exists for product=%s; treating upload as update "
+                "(existing spec_id=%s)",
+                api_product_id,
+                existing_spec.id,
+            )
+
+            # IMPORTANT: this is a policy decision
+            # For now, reuse update flow
+            return update_api_spec_file(
+                db,
+                spec=existing_spec,
+                file_bytes=file_bytes,
+                filename=filename,
+                content_type=content_type,
+                tenant_id=tenant_id,
+                description=description,
+            )
 
         # --------------------------------------------------------------
         # 3. CREATE ApiSpec row (now requires api_product_id)
@@ -151,8 +204,22 @@ def store_api_spec_file(
             ext=ext,
         )
 
-        copy_s3_object(temp_key, final_key)
-        delete_s3_object(temp_key)
+        logger.info(
+            "Moving spec file in S3: temp_key=%s final_key=%s tenant=%s product=%s spec_id=%s",
+            temp_key,
+            final_key,
+            tenant.slug,
+            product.slug,
+            spec.id,
+        )
+
+        try:
+            copy_s3_object(temp_key, final_key)
+            delete_s3_object(temp_key)
+            logger.info("Moved spec file in S3 successfully: final_key=%s", final_key)
+        except Exception:
+            logger.exception("Failed moving spec file in S3: temp_key=%s final_key=%s", temp_key, final_key)
+            raise
 
         spec.original_file_s3_path = generate_s3_url(final_key)
         db.commit()
