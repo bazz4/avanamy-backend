@@ -21,7 +21,9 @@ class DummyQuery:
     def first(self):
         return self.result
 
-
+    def one_or_none(self):
+        return self.result
+    
 def _stub_db(product, tenant, provider):
     db = MagicMock()
 
