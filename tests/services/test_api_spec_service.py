@@ -11,6 +11,18 @@ from avanamy.services.api_spec_service import (
 )
 
 
+def _uuid_str(u):
+    """
+    SQLite + SQLAlchemy's Postgres UUID type expect .hex; provide a str-like
+    value with a .hex property for UUID bindings while keeping API input as str.
+    """
+    class UUIDStr(str):
+        @property
+        def hex(self):
+            return uuid.UUID(str(self)).hex
+    return UUIDStr(str(u))
+
+
 class DummyQuery:
     """Minimal query stub that supports .filter(...).first()."""
 
@@ -385,9 +397,9 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
     # -------------------------
     spec1 = store_api_spec_file(
         db=db,
-        tenant_id=tenant.id,
-        provider_id=provider.id,
-        api_product_id=product.id,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
         file_bytes=b"openapi: 3.0.0\ninfo:\n  title: Test\npaths: {}",
         content_type="application/yaml",
@@ -396,9 +408,9 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
 
     spec2 = store_api_spec_file(
         db=db,
-        tenant_id=tenant.id,
-        provider_id=provider.id,
-        api_product_id=product.id,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
         file_bytes=b"openapi: 3.0.0\ninfo:\n  title: Test v2\npaths: {}",
         content_type="application/yaml",
@@ -416,3 +428,137 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
 
     # VersionHistoryRepository.create should have been invoked twice
     assert vh_mock.call_count == 2
+
+
+def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_product, monkeypatch):
+    tenant, provider, product = tenant_provider_product
+
+    # Silence S3 + doc generation side effects
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        lambda *args, **kwargs: ("tmp/key", "s3://bucket/tmp/key"),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.copy_s3_object",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.delete_s3_object",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_s3_url",
+        lambda key: f"s3://bucket/{key}",
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        lambda *args, **kwargs: None,
+    )
+
+    payload = b"openapi: 3.0.0\ninfo:\n  title: Test\npaths: {}"
+
+    spec1 = store_api_spec_file(
+        db=db,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product.id),
+        filename="spec.yaml",
+        file_bytes=payload,
+        content_type="application/yaml",
+        name="Menu API",
+    )
+
+    spec2 = store_api_spec_file(
+        db=db,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product.id),
+        filename="spec.yaml",
+        file_bytes=payload,
+        content_type="application/yaml",
+        name="Menu API",
+    )
+
+    all_specs = db.query(ApiSpec).all()
+    assert len(all_specs) == 1
+    assert spec1.id == spec2.id
+
+    versions = db.query(VersionHistory).filter(VersionHistory.api_spec_id == spec1.id).all()
+    assert len(versions) == 2
+
+
+def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_provider_product, monkeypatch):
+    tenant, provider, product_a = tenant_provider_product
+
+    # Create a second product under the same tenant/provider
+    from avanamy.models.api_product import ApiProduct
+
+    product_b = ApiProduct(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        provider_id=provider.id,
+        name="Second Product",
+        slug="second-product",
+    )
+    db.add(product_b)
+    db.commit()
+    db.refresh(product_b)
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        lambda *args, **kwargs: ("tmp/key", "s3://bucket/tmp/key"),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.copy_s3_object",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.delete_s3_object",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_s3_url",
+        lambda key: f"s3://bucket/{key}",
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        lambda *args, **kwargs: None,
+    )
+
+    payload_a = b"openapi: 3.0.0\ninfo:\n  title: Product A\npaths: {}"
+    payload_b = b"openapi: 3.0.0\ninfo:\n  title: Product B\npaths: {}"
+
+    spec_a = store_api_spec_file(
+        db=db,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product_a.id),
+        filename="spec-a.yaml",
+        file_bytes=payload_a,
+        content_type="application/yaml",
+        name="Menu API A",
+    )
+
+    spec_b = store_api_spec_file(
+        db=db,
+        tenant_id=_uuid_str(tenant.id),
+        provider_id=_uuid_str(provider.id),
+        api_product_id=_uuid_str(product_b.id),
+        filename="spec-b.yaml",
+        file_bytes=payload_b,
+        content_type="application/yaml",
+        name="Menu API B",
+    )
+
+    all_specs = db.query(ApiSpec).all()
+    assert len(all_specs) == 2
+    assert spec_a.api_product_id == product_a.id
+    assert spec_b.api_product_id == product_b.id
