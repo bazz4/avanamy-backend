@@ -19,8 +19,8 @@ def test_list_versions_for_spec(monkeypatch):
 
     fake_spec = SimpleNamespace(id=spec_id)
     fake_versions = [
-        SimpleNamespace(version=1, changelog="init", created_at=SimpleNamespace(isoformat=lambda: "ts1")),
-        SimpleNamespace(version=2, changelog="second", created_at=SimpleNamespace(isoformat=lambda: "ts2")),
+        SimpleNamespace(version=1, changelog="init", created_at=SimpleNamespace(isoformat=lambda: "ts1"), diff=None),
+        SimpleNamespace(version=2, changelog="second", created_at=SimpleNamespace(isoformat=lambda: "ts2"), diff=None),
     ]
 
     fake_db.query.return_value.join.return_value.join.return_value.filter.return_value.first.return_value = fake_spec
