@@ -221,11 +221,31 @@ def store_api_spec_file(
             logger.exception("Failed moving spec file in S3: temp_key=%s final_key=%s", temp_key, final_key)
             raise
 
-        spec.original_file_s3_path = generate_s3_url(final_key)
+        spec.original_file_s3_path = generate_s3_url(final_key)        
         db.commit()
 
         # --------------------------------------------------------------
-        # 7. Generate docs for v1
+        # 7. Generate normalized spec artifact
+        # --------------------------------------------------------------
+        try:
+            from avanamy.services.normalized_spec_service import generate_and_store_normalized_spec
+            
+            generate_and_store_normalized_spec(
+                db,
+                tenant_slug=tenant.slug,
+                provider_slug=provider_slug,
+                product_slug=product.slug,
+                version_label=version_label,
+                spec_id=spec.id,
+                spec_slug=spec_slug,
+                parsed_spec=parsed_dict if parsed_dict else {},
+                tenant_id=tenant.id,
+            )
+        except Exception:
+            logger.exception("Failed generating normalized spec for spec %s", spec.id)
+
+        # --------------------------------------------------------------
+        # 8. Generate docs for v1
         # --------------------------------------------------------------
         try:
             generate_and_store_markdown_for_spec(db, spec)
@@ -369,6 +389,47 @@ def update_api_spec_file(
 
         db.commit()
         db.refresh(spec)
+
+        # --------------------------------------------------------------------
+        # 5b. Generate normalized spec artifact
+        # --------------------------------------------------------------------
+        try:
+            from avanamy.services.normalized_spec_service import generate_and_store_normalized_spec
+            
+            generate_and_store_normalized_spec(
+                db,
+                tenant_slug=tenant.slug,
+                provider_slug=provider_slug,
+                product_slug=product.slug,
+                version_label=version_label,
+                spec_id=spec.id,
+                spec_slug=spec_slug,
+                parsed_spec=parsed_dict if parsed_dict else {},
+                tenant_id=tenant.id,
+            )
+        except Exception:
+            logger.exception("Failed generating normalized spec for spec %s", spec.id)
+
+        # --------------------------------------------------------------------
+        # 5c. Compute and store diff
+        # --------------------------------------------------------------------
+        try:
+            from avanamy.services.version_diff_service import compute_and_store_diff
+            from avanamy.services.spec_normalizer import normalize_openapi_spec
+            
+            # Generate normalized spec for diffing
+            current_normalized = normalize_openapi_spec(parsed_dict if parsed_dict else {})
+            
+            compute_and_store_diff(
+                db,
+                spec_id=spec.id,
+                tenant_id=tenant.id,
+                current_version=vh.version,
+                new_normalized_spec=current_normalized,
+            )
+        except Exception:
+            logger.exception("Failed computing diff for spec %s version %s", spec.id, vh.version)
+
 
         # --------------------------------------------------------------------
         # 6. Regenerate documentation (best-effort) for THIS version

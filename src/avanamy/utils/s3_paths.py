@@ -104,3 +104,18 @@ def build_diff_path(
     """
     version_root = build_version_root(tenant_slug, product_slug, to_version)
     return f"{version_root}/diffs/v{from_version}-to-v{to_version}.json"
+
+def build_normalized_spec_path(
+    tenant_slug: str,
+    provider_slug: str,
+    product_slug: str,
+    version: str,
+    spec_id: UUID,
+    spec_slug: str,
+) -> str:
+    """
+    S3 path for normalized spec artifacts:
+    tenants/{tenant_slug}/providers/{provider_slug}/api_products/{product_slug}/versions/{version}/normalized/{spec_id}-{spec_slug}.json
+    """
+    version_root = build_version_root(tenant_slug, provider_slug, product_slug, version)
+    return f"{version_root}/normalized/{spec_id}-{spec_slug}.json"

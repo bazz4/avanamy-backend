@@ -328,10 +328,41 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
         lambda *args, **kwargs: None,
     )
 
+    # Silence normalized spec and diff services
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.compute_and_store_diff",
+        lambda *args, **kwargs: None,
+    )
+
     # Stub parse and normalize functions
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.parse_api_spec",
-        lambda filename, raw: {"openapi": "3.0.0", "info": {"title": "Test"}, "paths": {}},
+        lambda filename, raw: {
+            "openapi": "3.0.0",
+            "info": {"title": "Test"},
+            "paths": {
+                "/test": {
+                    "get": {
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "required": ["id"]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.normalize_api_spec",
@@ -459,6 +490,16 @@ def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_pr
         lambda *args, **kwargs: None,
     )
 
+    # Silence normalized spec and diff services
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.compute_and_store_diff",
+        lambda *args, **kwargs: None,
+    )
+
     payload = b"openapi: 3.0.0\ninfo:\n  title: Test\npaths: {}"
 
     spec1 = store_api_spec_file(
@@ -530,6 +571,16 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        lambda *args, **kwargs: None,
+    )
+
+    # Silence normalized spec and diff services
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.compute_and_store_diff",
         lambda *args, **kwargs: None,
     )
 

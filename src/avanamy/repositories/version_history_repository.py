@@ -145,3 +145,33 @@ class VersionHistoryRepository:
             return "v1"
 
         return f"v{last_version.version}"
+
+    @staticmethod
+    def get_by_spec_and_version(
+        db: Session,
+        api_spec_id,
+        version: int,
+    ) -> Optional[VersionHistory]:
+        """
+        Get a specific version for a spec.
+        
+        Args:
+            db: Database session
+            api_spec_id: ApiSpec ID (UUID or int)
+            version: Version number
+            
+        Returns:
+            VersionHistory or None
+        """
+        with tracer.start_as_current_span("db.get_version_by_number") as span:
+            span.set_attribute("api_spec_id", str(api_spec_id))
+            span.set_attribute("version", version)
+            
+            return (
+                db.query(VersionHistory)
+                .filter(
+                    VersionHistory.api_spec_id == api_spec_id,
+                    VersionHistory.version == version,
+                )
+                .first()
+            )
