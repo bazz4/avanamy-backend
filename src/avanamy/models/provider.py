@@ -9,7 +9,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-
+from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 
 
@@ -68,3 +68,6 @@ class Provider(Base):
             name="uq_providers_tenant_slug",
         ),
     )
+
+    # Relationships
+    watched_apis = relationship("WatchedAPI", back_populates="provider")
