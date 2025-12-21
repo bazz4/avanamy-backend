@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 import uuid
 import sqlalchemy as sa
@@ -31,3 +32,6 @@ class ApiProduct(Base):
             name="uq_api_products_provider_slug",
         ),
     )
+
+    # Relationships
+    watched_apis = relationship("WatchedAPI", back_populates="api_product")

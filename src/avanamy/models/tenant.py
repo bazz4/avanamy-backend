@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import Column, ForeignKey, String, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
-
+from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 
 
@@ -26,3 +26,6 @@ class Tenant(Base):
     )
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    
+    # Relationships
+    watched_apis = relationship("WatchedAPI", back_populates="tenant")
