@@ -44,6 +44,7 @@ class SpecVersionOut(BaseModel):
     created_at: str
     changelog: str | None = None
     diff: dict | None = None  # Diff information showing changes from previous version
+    summary: str | None = None  # AI-generated summary of changes
 
     class Config:
         from_attributes = True
@@ -98,6 +99,7 @@ def list_versions_for_spec(
             "created_at": vh.created_at.isoformat(),
             "changelog": vh.changelog,
             "diff": vh.diff,
+            "summary": vh.summary,
         }
         for vh in versions
     ]

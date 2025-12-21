@@ -20,6 +20,9 @@ class VersionHistory(Base):
     # Optional JSON diff payload (can be None for now)
     diff = Column(JSON, nullable=True)
 
+
+    # AI-generated summary of changes
+    summary = Column(String, nullable=True)
     changelog = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

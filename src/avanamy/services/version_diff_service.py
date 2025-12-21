@@ -139,6 +139,30 @@ def compute_and_store_diff(
                 len(diff_result.get("changes", [])),
             )
             
+            # Generate AI summary (best-effort, don't fail if it doesn't work)
+            try:
+                from avanamy.services.ai_summary_service import generate_diff_summary
+                
+                summary = generate_diff_summary(
+                    diff=diff_result,
+                    version_from=previous_version,
+                    version_to=current_version,
+                )
+                
+                if summary:
+                    version_history.summary = summary
+                    db.commit()
+                    logger.info("Generated AI summary for spec_id=%s version=%d", spec_id, current_version)
+                    span.set_attribute("summary.generated", True)
+                else:
+                    logger.info("No AI summary generated for spec_id=%s version=%d", spec_id, current_version)
+                    span.set_attribute("summary.generated", False)
+                    
+            except Exception:
+                logger.exception("Failed to generate AI summary for spec_id=%s version=%d", spec_id, current_version)
+                span.set_attribute("summary.error", True)
+                # Don't fail the whole operation if summary generation fails
+            
         except Exception:
             logger.exception(
                 "Failed to store diff in VersionHistory for spec_id=%s version=%d",
