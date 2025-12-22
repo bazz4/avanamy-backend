@@ -10,7 +10,8 @@ def test_create_artifact_saves_and_refreshes():
     fake_db.commit = MagicMock()
     fake_db.refresh = MagicMock()
 
-    artifact = DocumentationArtifactRepository.create(
+    repo = DocumentationArtifactRepository()
+    artifact = repo.create(
         fake_db,
         tenant_id="tenant-1",
         api_spec_id="spec-1",

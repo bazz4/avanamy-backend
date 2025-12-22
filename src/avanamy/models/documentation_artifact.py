@@ -14,6 +14,8 @@ class DocumentationArtifact(Base):
     artifact_type = Column(String, nullable=False)
     s3_path = Column(String, nullable=False)
     api_spec = relationship("ApiSpec")
+    version_history_id = Column(Integer, ForeignKey("version_history.id"), nullable=True)
+    version_history = relationship("VersionHistory", backref="artifacts")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

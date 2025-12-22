@@ -31,8 +31,19 @@ def _make_spec(db, tenant, provider, product):
 
 
 def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_product, monkeypatch):
+    from avanamy.models.version_history import VersionHistory
+
     tenant, provider, product = tenant_provider_product
     spec = _make_spec(db, tenant, provider, product)
+
+    # Create a version history record for the spec
+    version_history = VersionHistory(
+        api_spec_id=spec.id,
+        version=5,
+    )
+    db.add(version_history)
+    db.commit()
+    db.refresh(version_history)
 
     uploads = []
 
@@ -53,10 +64,6 @@ def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_pr
     monkeypatch.setattr(
         "avanamy.services.documentation_service.DocumentationArtifactRepository",
         lambda: repo,
-    )
-    monkeypatch.setattr(
-        "avanamy.services.documentation_service.VersionHistoryRepository.current_version_label_for_spec",
-        lambda db, api_spec_id: "v5",
     )
 
     md_key = generate_and_store_markdown_for_spec(db, spec)

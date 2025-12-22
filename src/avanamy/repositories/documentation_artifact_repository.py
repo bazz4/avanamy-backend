@@ -11,14 +11,15 @@ tracer = trace.get_tracer(__name__)
 
 class DocumentationArtifactRepository:
 
-    @staticmethod
     def create(
+        self,
         db: Session,
         *,
         tenant_id: str,
         api_spec_id: str,
         artifact_type: str,
         s3_path: str,
+        version_history_id: int = None,
     ) -> DocumentationArtifact:
 
         artifact = DocumentationArtifact(
@@ -26,6 +27,7 @@ class DocumentationArtifactRepository:
             api_spec_id=api_spec_id,
             artifact_type=artifact_type,
             s3_path=s3_path,
+            version_history_id=version_history_id,
         )
 
         with tracer.start_as_current_span("db.create_documentation_artifact"):

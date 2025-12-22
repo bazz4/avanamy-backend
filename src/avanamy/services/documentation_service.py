@@ -17,6 +17,7 @@ from avanamy.repositories.documentation_artifact_repository import Documentation
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.tenant import Tenant
+from avanamy.models.version_history import VersionHistory
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
 from avanamy.utils.filename_utils import slugify_filename
 from avanamy.utils.s3_paths import (
@@ -101,8 +102,17 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
             logger.error("Tenant not found for product_id=%s", product.id)
             return None
 
-        # Current label for this spec (e.g., "v1", "v2")
-        version_label = VersionHistoryRepository.current_version_label_for_spec(db, spec.id)
+        # Get the current version history record
+        version_history = db.query(VersionHistory).filter(
+            VersionHistory.api_spec_id == spec.id
+        ).order_by(VersionHistory.version.desc()).first()
+
+        if not version_history:
+            logger.error("No version history found for spec_id=%s", spec.id)
+            return None
+
+        version_label = f"v{version_history.version}"
+        version_history_id = version_history.id
 
         # --------------------------------------------------------------------
         # 1. Markdown
@@ -151,41 +161,23 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         # --------------------------------------------------------------------
         repo = DocumentationArtifactRepository()
 
-        # Markdown artifact
-        existing_md = repo.get_latest(
+        repo.create(
             db=db,
+            tenant_id=tenant_uuid,
             api_spec_id=spec.id,
-            tenant_id=str(tenant_uuid),
             artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
+            s3_path=md_key,
+            version_history_id=version_history_id,
         )
-        if existing_md:
-            existing_md.s3_path = md_key
-        else:
-            repo.create(
-                db=db,
-                tenant_id=tenant_uuid,
-                api_spec_id=spec.id,
-                artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
-                s3_path=md_key,
-            )
-
-        # HTML artifact
-        existing_html = repo.get_latest(
+        
+        repo.create(
             db=db,
-            tenant_id=str(tenant_uuid),
+            tenant_id=tenant_uuid,
             api_spec_id=spec.id,
             artifact_type=ARTIFACT_TYPE_API_HTML,
+            s3_path=html_key,
+            version_history_id=version_history_id,
         )
-        if existing_html:
-            existing_html.s3_path = html_key
-        else:
-            repo.create(
-                db=db,
-                tenant_id=tenant_uuid,
-                api_spec_id=spec.id,
-                artifact_type=ARTIFACT_TYPE_API_HTML,
-                s3_path=html_key,
-            )
 
         # --------------------------------------------------------------------
         # 4. Update spec with HTML URL and commit
