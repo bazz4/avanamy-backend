@@ -48,3 +48,11 @@ build-backend = "poetry.core.masonry.api"
 dev = [
     "pytest (>=9.0.1,<10.0.0)"
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "anyio: mark test to run with anyio",
+]
+# Note: anyio will try to run tests with both asyncio and trio backends.
+# Since trio is not installed, use -k "not trio" to exclude trio tests.
+# Example: pytest -k "not trio" -v

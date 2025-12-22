@@ -156,27 +156,39 @@ class PollingService:
         - Computing diff
         - Generating AI summary
         """
+        from avanamy.models.api_spec import ApiSpec
+        from avanamy.models.version_history import VersionHistory
+        
+        # Get or create the ApiSpec for this API product
+        api_spec = self.db.query(ApiSpec).filter(
+            ApiSpec.api_product_id == watched_api.api_product_id
+        ).first()
+        
+        if not api_spec:
+            # Create new ApiSpec if it doesn't exist
+            api_spec = ApiSpec(
+                api_product_id=watched_api.api_product_id,
+                name=f"API Spec from {watched_api.spec_url}"
+            )
+            self.db.add(api_spec)
+            self.db.flush()  # Get the ID
+        
         # Determine filename based on URL
         filename = self._extract_filename(watched_api.spec_url)
         
         # Call existing service to handle the upload
-        # This returns the ApiSpec object
-        api_spec = update_api_spec_file(
+        updated_spec = update_api_spec_file(
             db=self.db,
-            tenant_id=watched_api.tenant_id,
-            provider_id=watched_api.provider_id,
-            api_product_id=watched_api.api_product_id,
+            spec=api_spec,
+            file_bytes=spec_content.encode(),
             filename=filename,
-            raw_content=spec_content.encode(),
-            changelog=f"Auto-detected change from {watched_api.spec_url}"
+            tenant_id=str(watched_api.tenant_id),
+            description=f"Auto-detected change from {watched_api.spec_url}"
         )
         
-        # The version number is stored in version_history
-        # Get the latest version for this spec
-        from avanamy.models.version_history import VersionHistory
-        
+        # Get the latest version number
         latest_version = self.db.query(VersionHistory).filter(
-            VersionHistory.api_spec_id == api_spec.id
+            VersionHistory.api_spec_id == updated_spec.id
         ).order_by(VersionHistory.version.desc()).first()
         
         if latest_version:

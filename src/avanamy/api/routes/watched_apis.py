@@ -75,7 +75,7 @@ class WatchedAPIResponse(BaseModel):
 
 # Dependency to get tenant_id
 # For MVP, we'll use a header. In Phase 4B (auth), this will come from JWT
-def get_tenant_id(x_tenant_id: UUID = Depends(lambda: UUID("550e8400-e29b-41d4-a716-446655440000"))):
+def get_tenant_id(x_tenant_id: UUID = Depends(lambda: UUID("11111111-1111-1111-1111-111111111111"))):
     """Get tenant ID from request. For MVP, hardcoded. Will use JWT in Phase 4B."""
     return x_tenant_id
 

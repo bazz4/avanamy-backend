@@ -18,6 +18,7 @@ import avanamy.models.api_product
 import avanamy.models.provider
 import avanamy.models.tenant
 import avanamy.models.user
+import avanamy.models.watched_api
 
 
 @pytest.fixture(scope="session")
@@ -95,7 +96,7 @@ def client(db):
             pass
 
     # Apply overrides for every route module that defines get_db
-    from avanamy.api.routes import api_specs, docs, spec_versions, spec_docs, providers, products
+    from avanamy.api.routes import api_specs, docs, spec_versions, spec_docs, providers, products, watched_apis
 
     app.dependency_overrides[api_specs.get_db] = override_get_db
     app.dependency_overrides[docs.get_db] = override_get_db
@@ -103,6 +104,7 @@ def client(db):
     app.dependency_overrides[spec_docs.get_db] = override_get_db
     app.dependency_overrides[providers.get_db] = override_get_db
     app.dependency_overrides[products.get_db] = override_get_db
+    app.dependency_overrides[watched_apis.get_db] = override_get_db
 
     test_client = TestClient(app)
     try:

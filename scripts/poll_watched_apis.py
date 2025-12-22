@@ -29,7 +29,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('/tmp/poll_watched_apis.log'),
+        logging.FileHandler('poll_watched_apis.log'),
         logging.StreamHandler()
     ]
 )
