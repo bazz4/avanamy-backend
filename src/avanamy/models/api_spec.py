@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import ForeignKey
 from sqlalchemy import Column, String, Text, DateTime
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from avanamy.db.database import Base
 
@@ -56,3 +57,5 @@ class ApiSpec(Base):
             name="uq_api_specs_provider_api_version",
         ),
     )
+
+    watched_apis = relationship("WatchedAPI", back_populates="api_spec")

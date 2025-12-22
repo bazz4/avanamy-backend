@@ -418,6 +418,7 @@ class TestPollingServiceCreateNewVersion:
         watched_api = SimpleNamespace(
             api_product_id="product-id",
             tenant_id="tenant-id",
+            provider_id="provider-id",
             spec_url="https://example.com/spec.yaml"
         )
 
