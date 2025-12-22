@@ -89,14 +89,23 @@ def generate_and_store_normalized_spec(
         )
         
         # Create artifact record
-        DocumentationArtifactRepository.create(
-            db,
+        repo = DocumentationArtifactRepository()
+        
+        # Get the version_history_id for this version
+        from avanamy.models.version_history import VersionHistory
+        version_history = db.query(VersionHistory).filter(
+            VersionHistory.api_spec_id == spec_id
+        ).order_by(VersionHistory.version.desc()).first()
+        
+        repo.create(
+            db=db,
             tenant_id=str(tenant_id),
             api_spec_id=str(spec_id),
             artifact_type="normalized_spec",
             s3_path=s3_path,
+            version_history_id=version_history.id if version_history else None,
         )
-        
+
         logger.info(
             "Stored normalized spec artifact: spec_id=%s version=%s",
             spec_id,
