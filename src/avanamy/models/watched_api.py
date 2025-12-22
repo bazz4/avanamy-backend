@@ -77,5 +77,9 @@ class WatchedAPI(Base):
     provider = relationship("Provider", back_populates="watched_apis")
     api_product = relationship("ApiProduct", back_populates="watched_apis")
 
+    # Relationships for Phase 5
+    alert_configurations = relationship("AlertConfiguration", back_populates="watched_api")
+    endpoint_health_checks = relationship("EndpointHealth", back_populates="watched_api")
+
     def __repr__(self):
         return f"<WatchedAPI(id={self.id}, spec_url={self.spec_url}, status={self.status})>"
