@@ -19,6 +19,9 @@ import avanamy.models.provider
 import avanamy.models.tenant
 import avanamy.models.user
 import avanamy.models.watched_api
+import avanamy.models.alert_configuration
+import avanamy.models.alert_history
+import avanamy.models.endpoint_health
 
 
 @pytest.fixture(scope="session")
