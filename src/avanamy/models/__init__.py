@@ -11,3 +11,6 @@ from .version_history import VersionHistory
 from .api_product import ApiProduct
 from .tenant import Tenant
 from .watched_api import WatchedAPI
+from .alert_configuration import AlertConfiguration
+from .alert_history import AlertHistory
+from .endpoint_health import EndpointHealth
