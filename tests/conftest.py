@@ -98,16 +98,10 @@ def client(db):
         finally:
             pass
 
-    # Apply overrides for every route module that defines get_db
-    from avanamy.api.routes import api_specs, docs, spec_versions, spec_docs, providers, products, watched_apis
+    # Apply override for get_db dependency used across all routes
+    from avanamy.db.database import get_db as db_get_db
 
-    app.dependency_overrides[api_specs.get_db] = override_get_db
-    app.dependency_overrides[docs.get_db] = override_get_db
-    app.dependency_overrides[spec_versions.get_db] = override_get_db
-    app.dependency_overrides[spec_docs.get_db] = override_get_db
-    app.dependency_overrides[providers.get_db] = override_get_db
-    app.dependency_overrides[products.get_db] = override_get_db
-    app.dependency_overrides[watched_apis.get_db] = override_get_db
+    app.dependency_overrides[db_get_db] = override_get_db
 
     test_client = TestClient(app)
     try:
