@@ -16,7 +16,10 @@ from sqlalchemy.orm import Session
 from opentelemetry import trace
 
 from avanamy.models.watched_api import WatchedAPI
+from avanamy.models.version_history import VersionHistory
 from avanamy.services.api_spec_service import update_api_spec_file
+from avanamy.services.alert_service import AlertService
+from avanamy.services.endpoint_health_service import EndpointHealthService
 from avanamy.services.api_spec_parser import parse_api_spec
 
 logger = logging.getLogger(__name__)
@@ -64,11 +67,17 @@ class PollingService:
                 spec_hash = self._hash_spec(spec_content)
                 span.set_attribute("spec_hash", spec_hash)
                 
+                # Run endpoint health checks (independent of spec changes)
+                health_results = await self._run_health_checks(watched_api, spec_content)
+                
                 # Check if spec has changed
                 if spec_hash == watched_api.last_spec_hash:
                     logger.info(f"No changes detected for {watched_api.spec_url}")
                     self._update_poll_tracking(watched_api, success=True, error=None)
-                    return {"status": "no_change"}
+                    return {
+                        "status": "no_change",
+                        "health_checks": health_results
+                    }
                 
                 # Spec has changed! Create new version
                 logger.info(f"Changes detected for {watched_api.spec_url}, creating new version")
@@ -102,6 +111,9 @@ class PollingService:
                     f"Successfully created version {new_version} for {watched_api.spec_url}"
                 )
                 span.set_attribute("version_created", new_version)
+                
+                # Check for breaking changes and send alerts
+                await self._check_and_alert_breaking_changes(watched_api, new_version)
                 
                 return {
                     "status": "success",
@@ -156,39 +168,27 @@ class PollingService:
         - Computing diff
         - Generating AI summary
         """
-        from avanamy.models.api_spec import ApiSpec
-        from avanamy.models.version_history import VersionHistory
-        
-        # Get or create the ApiSpec for this API product
-        api_spec = self.db.query(ApiSpec).filter(
-            ApiSpec.api_product_id == watched_api.api_product_id
-        ).first()
-        
-        if not api_spec:
-            # Create new ApiSpec if it doesn't exist
-            api_spec = ApiSpec(
-                api_product_id=watched_api.api_product_id,
-                name=f"API Spec from {watched_api.spec_url}"
-            )
-            self.db.add(api_spec)
-            self.db.flush()  # Get the ID
-        
         # Determine filename based on URL
         filename = self._extract_filename(watched_api.spec_url)
         
         # Call existing service to handle the upload
-        updated_spec = update_api_spec_file(
+        # This returns the ApiSpec object
+        api_spec = update_api_spec_file(
             db=self.db,
-            spec=api_spec,
-            file_bytes=spec_content.encode(),
+            tenant_id=watched_api.tenant_id,
+            provider_id=watched_api.provider_id,
+            api_product_id=watched_api.api_product_id,
             filename=filename,
-            tenant_id=str(watched_api.tenant_id),
-            description=f"Auto-detected change from {watched_api.spec_url}"
+            raw_content=spec_content.encode(),
+            changelog=f"Auto-detected change from {watched_api.spec_url}"
         )
         
-        # Get the latest version number
+        # The version number is stored in version_history
+        # Get the latest version for this spec
+        from avanamy.models.version_history import VersionHistory
+        
         latest_version = self.db.query(VersionHistory).filter(
-            VersionHistory.api_spec_id == updated_spec.id
+            VersionHistory.api_spec_id == api_spec.id
         ).order_by(VersionHistory.version.desc()).first()
         
         if latest_version:
@@ -235,6 +235,102 @@ class PollingService:
                 )
         
         self.db.commit()
+
+    async def _check_and_alert_breaking_changes(
+        self,
+        watched_api: WatchedAPI,
+        version_number: int
+    ):
+        """
+        Check if the new version has breaking changes and send alerts.
+        
+        Args:
+            watched_api: The WatchedAPI that was updated
+            version_number: The version number that was just created
+        """
+        try:
+            # Ensure api_spec_id is set
+            if not watched_api.api_spec_id:
+                logger.warning(f"WatchedAPI {watched_api.id} has no api_spec_id set")
+                return
+            
+            # Get the version history record
+            version_history = self.db.query(VersionHistory).filter(
+                VersionHistory.api_spec_id == watched_api.api_spec_id,
+                VersionHistory.version == version_number
+            ).first()
+            
+            if not version_history:
+                logger.warning(f"Version history not found for version {version_number}")
+                return
+            
+            # Check if there's a diff and if it contains breaking changes
+            if not version_history.diff:
+                logger.info(f"No diff found for version {version_number}")
+                return
+            
+            diff = version_history.diff
+            
+            # Check if breaking changes exist
+            is_breaking = diff.get('breaking', False)
+            
+            if not is_breaking:
+                logger.info(f"No breaking changes in version {version_number}")
+                return
+            
+            logger.info(
+                f"Breaking changes detected in version {version_number}, sending alerts"
+            )
+            
+            # Send alerts
+            alert_service = AlertService(self.db)
+            await alert_service.send_breaking_change_alert(
+                watched_api=watched_api,
+                version_history=version_history,
+                diff=diff,
+                summary=version_history.summary
+            )
+            
+        except Exception as e:
+            logger.error(f"Error checking/alerting breaking changes: {e}", exc_info=True)
+            # Don't fail the polling if alerting fails
+
+    async def _run_health_checks(
+        self,
+        watched_api: WatchedAPI,
+        spec_content: str
+    ) -> dict:
+        """
+        Run endpoint health checks for this API.
+        
+        Args:
+            watched_api: The WatchedAPI to check
+            spec_content: The OpenAPI spec content
+        
+        Returns:
+            Dict with health check results
+        """
+        try:
+            logger.info(f"Running health checks for {watched_api.spec_url}")
+            
+            health_service = EndpointHealthService(self.db)
+            results = await health_service.check_endpoints(watched_api, spec_content)
+            
+            logger.info(
+                f"Health checks complete: {results['healthy']} healthy, "
+                f"{results['unhealthy']} unhealthy"
+            )
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error running health checks: {e}", exc_info=True)
+            return {
+                "total": 0,
+                "healthy": 0,
+                "unhealthy": 0,
+                "error": str(e)
+            }
 
 
 async def poll_all_active_apis(db: Session) -> dict:

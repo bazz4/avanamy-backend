@@ -12,6 +12,7 @@ from avanamy.api.routes.products import router as products_router
 from avanamy.api.routes.spec_versions import router as spec_versions_router
 from avanamy.api.routes.spec_docs import router as spec_docs_router
 from avanamy.api.routes.watched_apis import router as watched_apis_router
+from avanamy.api.routes.alert_configs import router as alert_configs_router
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -35,6 +36,7 @@ app.include_router(spec_versions_router)
 app.include_router(products_router) 
 app.include_router(spec_docs_router)
 app.include_router(watched_apis_router)
+app.include_router(alert_configs_router)
 
 # ------------------------------------------------------------------
 # Observability

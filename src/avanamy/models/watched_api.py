@@ -30,6 +30,8 @@ class WatchedAPI(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("providers.id"), nullable=False)
     api_product_id = Column(UUID(as_uuid=True), ForeignKey("api_products.id"), nullable=False)
+    api_spec_id = Column(UUID(as_uuid=True), ForeignKey("api_specs.id"), nullable=True)
+    """Direct link to the ApiSpec this WatchedAPI writes versions to"""
 
     # API Configuration
     spec_url = Column(String, nullable=False)
@@ -76,10 +78,11 @@ class WatchedAPI(Base):
     tenant = relationship("Tenant", back_populates="watched_apis")
     provider = relationship("Provider", back_populates="watched_apis")
     api_product = relationship("ApiProduct", back_populates="watched_apis")
+    api_spec = relationship("ApiSpec", back_populates="watched_apis")
+
+    def __repr__(self):
+        return f"<WatchedAPI(id={self.id}, spec_url={self.spec_url}, status={self.status})>"
 
     # Relationships for Phase 5
     alert_configurations = relationship("AlertConfiguration", back_populates="watched_api")
     endpoint_health_checks = relationship("EndpointHealth", back_populates="watched_api")
-
-    def __repr__(self):
-        return f"<WatchedAPI(id={self.id}, spec_url={self.spec_url}, status={self.status})>"
