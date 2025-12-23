@@ -19,6 +19,9 @@ from datetime import datetime
 
 from avanamy.db.database import get_db
 from avanamy.models.watched_api import WatchedAPI
+from avanamy.models.provider import Provider
+from avanamy.models.api_product import ApiProduct
+from avanamy.services.polling_service import PollingService
 from avanamy.services.polling_service import PollingService
 from opentelemetry import trace
 
@@ -59,6 +62,8 @@ class WatchedAPIResponse(BaseModel):
     tenant_id: UUID
     provider_id: UUID
     api_product_id: UUID
+    provider_name: Optional[str] = None  # NEW
+    product_name: Optional[str] = None   # NEW
     spec_url: str
     polling_frequency: str
     polling_enabled: bool
@@ -123,11 +128,42 @@ def list_watched_apis(
 ):
     """List all watched APIs for the current tenant."""
     with tracer.start_as_current_span("list_watched_apis"):
-        watched_apis = db.query(WatchedAPI).filter(
+        # Join with Provider and ApiProduct to get names
+        watched_apis = db.query(
+            WatchedAPI,
+            Provider.name.label("provider_name"),
+            ApiProduct.name.label("product_name")
+        ).outerjoin(
+            Provider, WatchedAPI.provider_id == Provider.id
+        ).outerjoin(
+            ApiProduct, WatchedAPI.api_product_id == ApiProduct.id
+        ).filter(
             WatchedAPI.tenant_id == tenant_id
         ).order_by(WatchedAPI.created_at.desc()).all()
         
-        return watched_apis
+        # Convert to response format
+        result = []
+        for watched_api, provider_name, product_name in watched_apis:
+            api_dict = {
+                "id": watched_api.id,
+                "tenant_id": watched_api.tenant_id,
+                "provider_id": watched_api.provider_id,
+                "api_product_id": watched_api.api_product_id,
+                "provider_name": provider_name,
+                "product_name": product_name,
+                "spec_url": watched_api.spec_url,
+                "polling_frequency": watched_api.polling_frequency,
+                "polling_enabled": watched_api.polling_enabled,
+                "last_polled_at": watched_api.last_polled_at,
+                "last_successful_poll_at": watched_api.last_successful_poll_at,
+                "last_version_detected": watched_api.last_version_detected,
+                "consecutive_failures": watched_api.consecutive_failures,
+                "status": watched_api.status,
+                "created_at": watched_api.created_at
+            }
+            result.append(WatchedAPIResponse(**api_dict))
+        
+        return result
 
 
 @router.get("/{watched_api_id}", response_model=WatchedAPIResponse)
