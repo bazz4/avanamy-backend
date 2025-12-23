@@ -13,6 +13,8 @@ from avanamy.api.routes.spec_versions import router as spec_versions_router
 from avanamy.api.routes.spec_docs import router as spec_docs_router
 from avanamy.api.routes.watched_apis import router as watched_apis_router
 from avanamy.api.routes.alert_configs import router as alert_configs_router
+from avanamy.api.routes.alert_history import router as alert_history_router
+from avanamy.api.routes.endpoint_health import router as endpoint_health_router
 from fastapi.middleware.cors import CORSMiddleware
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
@@ -46,6 +48,8 @@ app.include_router(products_router)
 app.include_router(spec_docs_router)
 app.include_router(watched_apis_router)
 app.include_router(alert_configs_router)
+app.include_router(alert_history_router)
+app.include_router(endpoint_health_router)
 
 # ------------------------------------------------------------------
 # Observability
