@@ -13,6 +13,7 @@ from avanamy.api.routes.spec_versions import router as spec_versions_router
 from avanamy.api.routes.spec_docs import router as spec_docs_router
 from avanamy.api.routes.watched_apis import router as watched_apis_router
 from avanamy.api.routes.alert_configs import router as alert_configs_router
+from fastapi.middleware.cors import CORSMiddleware
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -26,6 +27,14 @@ configure_logging()
 configure_tracing()
 
 app = FastAPI(debug=True)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # All API spec + docs operations are now here
 app.include_router(api_specs_router)
