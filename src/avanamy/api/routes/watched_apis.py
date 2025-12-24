@@ -62,6 +62,7 @@ class WatchedAPIResponse(BaseModel):
     tenant_id: UUID
     provider_id: UUID
     api_product_id: UUID
+    api_spec_id: Optional[UUID] = None  # NEW
     provider_name: Optional[str] = None  # NEW
     product_name: Optional[str] = None   # NEW
     spec_url: str
@@ -149,6 +150,7 @@ def list_watched_apis(
                 "tenant_id": watched_api.tenant_id,
                 "provider_id": watched_api.provider_id,
                 "api_product_id": watched_api.api_product_id,
+                "api_spec_id": watched_api.api_spec_id,
                 "provider_name": provider_name,
                 "product_name": product_name,
                 "spec_url": watched_api.spec_url,

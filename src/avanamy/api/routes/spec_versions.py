@@ -103,3 +103,119 @@ def list_versions_for_spec(
         }
         for vh in versions
     ]
+
+@router.get(
+    "/{spec_id}/versions/{version_id}",
+    response_model=SpecVersionOut,
+)
+def get_version_detail(
+    spec_id: UUID,
+    version_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Get detailed information about a specific version, including diff and summary.
+    """
+    # Validate tenant ownership
+    spec = (
+        db.query(ApiSpec)
+        .join(ApiProduct, ApiProduct.id == ApiSpec.api_product_id)
+        .join(Provider, Provider.id == ApiProduct.provider_id)
+        .filter(
+            ApiSpec.id == spec_id,
+            Provider.tenant_id == tenant_id,
+        )
+        .first()
+    )
+
+    if not spec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API spec not found for this tenant",
+        )
+
+    version = (
+        db.query(VersionHistory)
+        .filter(
+            VersionHistory.api_spec_id == spec_id,
+            VersionHistory.id == version_id,
+        )
+        .first()
+    )
+
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Version not found",
+        )
+
+    return {
+        "version": version.version,
+        "label": f"v{version.version}",
+        "created_at": version.created_at.isoformat(),
+        "changelog": version.changelog,
+        "diff": version.diff,
+        "summary": version.summary,
+    }
+
+
+@router.get(
+    "/{spec_id}/versions/{version_number}/diff",
+)
+def get_version_diff(
+    spec_id: UUID,
+    version_number: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Get the raw diff for a specific version by version number.
+    Returns the JSON diff object showing what changed from the previous version.
+    """
+    # Validate tenant ownership
+    spec = (
+        db.query(ApiSpec)
+        .join(ApiProduct, ApiProduct.id == ApiSpec.api_product_id)
+        .join(Provider, Provider.id == ApiProduct.provider_id)
+        .filter(
+            ApiSpec.id == spec_id,
+            Provider.tenant_id == tenant_id,
+        )
+        .first()
+    )
+
+    if not spec:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API spec not found for this tenant",
+        )
+
+    version = (
+        db.query(VersionHistory)
+        .filter(
+            VersionHistory.api_spec_id == spec_id,
+            VersionHistory.version == version_number,  # Changed from .id to .version
+        )
+        .first()
+    )
+
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Version not found",
+        )
+
+    if not version.diff:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No diff available for this version",
+        )
+
+    return {
+        "version_id": version.id,
+        "version": version.version,
+        "diff": version.diff,
+        "summary": version.summary,
+        "created_at": version.created_at.isoformat(),
+    }
