@@ -14,6 +14,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from opentelemetry import trace
 
+from avanamy.models.documentation_artifact import DocumentationArtifact
 from avanamy.services.spec_diff_engine import diff_normalized_specs
 from avanamy.services.s3 import download_bytes
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
@@ -182,14 +183,7 @@ def _load_normalized_spec_for_version(
     """
     Load normalized spec from S3 for a specific version.
     
-    Strategy:
-    Get all normalized_spec artifacts for this spec (ordered by created_at desc),
-    then pick the one corresponding to the requested version.
-    
-    Since we create artifacts sequentially:
-    - Latest artifact = current version
-    - Second-to-last = previous version
-    - etc.
+    Uses version_history_id to find the correct artifact, not artifact count.
     
     Args:
         db: Database session
@@ -200,41 +194,44 @@ def _load_normalized_spec_for_version(
     Returns:
         Normalized spec dict or None if not found
     """
-    # Get all normalized_spec artifacts for this spec
-    all_artifacts = DocumentationArtifactRepository.list_for_spec(
-        db,
-        api_spec_id=str(spec_id),
-        tenant_id=str(tenant_id),
+    from avanamy.models.version_history import VersionHistory
+    
+    # Get the VersionHistory record for this version
+    version_history = (
+        db.query(VersionHistory)
+        .filter(
+            VersionHistory.api_spec_id == spec_id,
+            VersionHistory.version == version,
+        )
+        .first()
     )
     
-    # Filter to only normalized_spec type
-    normalized_artifacts = [
-        a for a in all_artifacts 
-        if a.artifact_type == "normalized_spec"
-    ]
-    
-    if not normalized_artifacts:
+    if not version_history:
         logger.warning(
-            "No normalized_spec artifacts found for spec_id=%s",
+            "VersionHistory not found for spec_id=%s version=%d",
             spec_id,
-        )
-        return None
-    
-    # Artifacts are ordered by created_at desc (newest first)
-    # Map: index 0 = latest version, index 1 = previous, etc.
-    current_version = len(normalized_artifacts)  # Total versions
-    artifact_index = current_version - version  # 0-based index
-    
-    if artifact_index < 0 or artifact_index >= len(normalized_artifacts):
-        logger.warning(
-            "Version %d out of range for spec_id=%s (have %d versions)",
             version,
-            spec_id,
-            current_version,
         )
         return None
     
-    artifact = normalized_artifacts[artifact_index]
+    # Get the normalized_spec artifact for this version_history_id
+    artifact = (
+        db.query(DocumentationArtifact)
+        .filter(
+            DocumentationArtifact.version_history_id == version_history.id,
+            DocumentationArtifact.artifact_type == "normalized_spec",
+        )
+        .first()
+    )
+    
+    if not artifact:
+        logger.warning(
+            "No normalized_spec artifact found for spec_id=%s version=%d (version_history_id=%d)",
+            spec_id,
+            version,
+            version_history.id,
+        )
+        return None
     
     logger.info(
         "Loading normalized spec for version=%d from S3: %s",
