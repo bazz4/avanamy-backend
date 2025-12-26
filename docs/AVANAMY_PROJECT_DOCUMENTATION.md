@@ -1,7 +1,7 @@
 # Avanamy - API Documentation Generator & Monitoring Platform
 
-**Last Updated:** December 22, 2024  
-**Status:** Phase 5 Complete - Moving to Phase 4B (Auth) and Phase 6 (UI)
+**Last Updated:** December 26, 2024  
+**Status:** Phase 5 Complete + Full Schema Diff + Polling Enhancements
 
 ---
 
@@ -13,6 +13,7 @@ Avanamy is a SaaS platform that automatically monitors external APIs for changes
 ### Core Value Proposition
 - **Automatic monitoring:** Poll external APIs (Stripe, DoorDash, etc.) for spec changes
 - **Breaking change detection:** AI-powered diff engine identifies breaking vs non-breaking changes
+- **Full schema comparison:** Side-by-side and unified diff views of complete OpenAPI specs
 - **Instant alerts:** Webhook/email/Slack notifications when APIs change
 - **Endpoint health monitoring:** Track availability and response times of API endpoints
 - **Version history:** Complete timeline of all API changes with diffs
@@ -30,12 +31,14 @@ Avanamy is a SaaS platform that automatically monitors external APIs for changes
 
 ### Tech Stack
 - **Backend:** FastAPI (Python 3.13)
+- **Frontend:** Next.js 16.1.1 (Turbopack), TypeScript, Tailwind CSS
 - **Database:** PostgreSQL with UUID primary keys
 - **Storage:** AWS S3 for specs and documentation
 - **AI:** Anthropic Claude API (Sonnet 4) for summaries and diff analysis
 - **Observability:** OpenTelemetry tracing + Prometheus metrics
 - **Async:** httpx for external API calls
 - **Auth:** JWT (to be implemented in Phase 4B)
+- **Diff Engine:** diff library (npm) for client-side schema comparison
 
 ### Data Model Hierarchy
 
@@ -45,7 +48,7 @@ Tenant (Organization)
       └── ApiProduct (e.g., "Payments API", "Menu API")
           └── ApiSpec (The spec being monitored)
               └── VersionHistory (v1, v2, v3...)
-                  ├── DocumentationArtifacts (normalized_spec, markdown, html per version)
+                  ├── DocumentationArtifacts (normalized_spec, html, markdown, original_spec per version)
                   └── Diff (breaking changes, summary)
 ```
 
@@ -57,23 +60,35 @@ Tenant (Organization)
 - No cross-tenant data access allowed
 
 **2. Version-Scoped Artifacts**
-- Each version has its own normalized spec, markdown, and HTML docs
+- Each version has its own normalized spec, markdown, HTML docs, AND original spec
 - Database artifacts table has `version_history_id` FK (not just version string)
-- S3 paths are version-scoped: `tenants/{tenant}/versions/v3/docs/html/...`
-- Enables rollback, historical viewing, and version comparisons
+- S3 paths are version-scoped: `tenants/{tenant}/providers/{provider}/api_products/{product}/versions/{version}/specs/...`
+- Enables rollback, historical viewing, and full schema comparisons
 
-**3. Watched APIs**
+**3. Original Spec Storage (NEW - December 26, 2024)**
+- Store original uploaded/polled specs separately from normalized specs
+- Enables full schema comparison between any two versions
+- Uses existing S3 infrastructure and documentation_artifacts table
+- New artifact_type: `original_spec` (alongside `normalized_spec`, `html`, `markdown`)
+
+**4. Watched APIs**
 - `WatchedAPI` model tracks external URLs to poll
 - Has direct FK to `ApiSpec` (added in Phase 5)
 - Polling service fetches external specs, detects changes via SHA256 hash
 - Creates new versions automatically when changes detected
+- Uses UTC timestamps to prevent timezone issues
 
-**4. Alert System**
+**5. Alert System (Future Notification Service)**
 - `AlertConfiguration`: Where to send alerts (email, webhook, slack)
 - `AlertHistory`: Audit trail of all sent alerts
 - Alerts triggered by: breaking changes OR endpoint failures
+- **Architecture Decision (December 26, 2024):** Notifications will be a separate module with queue-based async processing
+  - Designed for easy decoupling into microservice
+  - Message queue (Redis/RabbitMQ) for async notification delivery
+  - Channel pattern for extensibility (Email, Slack, PagerDuty, webhooks)
+  - Start as internal module, migrate to external service when scale demands
 
-**5. Health Monitoring**
+**6. Health Monitoring**
 - Extracts endpoints from OpenAPI specs
 - Makes actual HTTP requests to test availability
 - Records status codes, response times in `EndpointHealth` table
@@ -122,8 +137,8 @@ Tenant (Organization)
 - `id` (Integer, PK)
 - `tenant_id` (FK)
 - `api_spec_id` (FK)
-- `version_history_id` (FK) ← NEW in Phase 5
-- `artifact_type` (enum: normalized_spec, api_markdown, api_html)
+- `version_history_id` (FK)
+- `artifact_type` (enum: `normalized_spec`, `api_markdown`, `api_html`, `original_spec`) ← **Updated December 26, 2024**
 - `s3_path`
 - `created_at`
 
@@ -134,13 +149,15 @@ Tenant (Organization)
 - `tenant_id` (FK)
 - `provider_id` (FK)
 - `api_product_id` (FK)
-- `api_spec_id` (FK) ← NEW in Phase 5
+- `api_spec_id` (FK)
 - `spec_url` (e.g., "https://api.stripe.com/openapi.yaml")
 - `polling_frequency` (hourly, daily, weekly)
 - `polling_enabled` (boolean)
 - `last_spec_hash` (SHA256 for change detection)
-- `last_polled_at`, `last_successful_poll_at`
-- `consecutive_failures`, `status`
+- `last_polled_at`, `last_successful_poll_at` ← **Fixed to use UTC (December 26, 2024)**
+- `consecutive_failures` (integer)
+- `last_error` (text) - Error message from last poll failure
+- `status` (active, paused, failed, deleted)
 
 ### Phase 5 Tables (Alerts & Health)
 
@@ -148,8 +165,9 @@ Tenant (Organization)
 - `id` (UUID, PK)
 - `tenant_id` (FK)
 - `watched_api_id` (FK)
-- `alert_type` (email, webhook, slack)
+- `alert_type` (email, webhook, slack) ← **Will become channel_type**
 - `destination` (email address, webhook URL, etc.)
+- `channel_config` (JSON) ← **To be added for channel-specific settings**
 - `alert_on_breaking_changes` (boolean)
 - `alert_on_non_breaking_changes` (boolean)
 - `alert_on_endpoint_failures` (boolean)
@@ -190,6 +208,7 @@ Tenant (Organization)
 User uploads OpenAPI spec via Swagger UI
   → store_api_spec_file() in api_spec_service
   → Store raw spec in S3
+  → Create original_spec artifact ← NEW (December 26, 2024)
   → Generate normalized spec (spec_normalizer)
   → Compute diff vs previous version (version_diff_service)
   → Detect breaking changes
@@ -210,33 +229,56 @@ Cron job runs poll_watched_apis.py
   
   If changed:
     → Call update_api_spec_file() (same flow as manual upload)
+    → Store original_spec artifact ← NEW (December 26, 2024)
     → Create new version
     → Check for breaking changes
     → Send alerts if configured
   
   Always (even if no change):
+    → Update timestamps using UTC ← FIXED (December 26, 2024)
+    → Update consecutive_failures and last_error
     → Run endpoint health checks
     → Test each endpoint with HTTP requests
     → Record results in endpoint_health table
     → Alert if endpoints failing
 ```
 
-### 3. Alert Flow (Phase 5A)
+### 3. Full Schema Comparison (NEW - December 26, 2024)
+```
+User clicks "View Full Schema" on diff page
+  → Navigate to /specs/{specId}/versions/{versionId}/full-schema
+  → Fetch both versions from S3 via original_spec artifacts
+  → Compare using diff library on frontend
+  
+  Features:
+    → Search/filter within diff (highlights matches)
+    → Jump to next/previous change
+    → Collapsible sections (paths, components)
+    → Compare ANY two versions (not just sequential)
+    → Toggle unified vs split view
+    → Gracefully handle missing artifacts for legacy versions
+```
+
+### 4. Alert Flow (Phase 5A - Future Enhancement)
 ```
 Breaking change detected OR endpoint fails
-  → AlertService.send_breaking_change_alert() OR send_endpoint_failure_alert()
+  → Publish event to message queue ← NEW ARCHITECTURE (December 26, 2024)
+  → NotificationWorker consumes event
+  → AlertService.send_alert()
   → Query AlertConfiguration for this watched_api
   → For each config:
       → Create AlertHistory record (status=pending)
-      → Send via appropriate channel:
-          - webhook: HTTP POST with JSON payload
-          - email: SMTP (mocked in MVP)
-          - slack: Webhook (to be implemented)
+      → Route to appropriate channel:
+          - EmailChannel: SMTP delivery
+          - SlackChannel: Webhook (future)
+          - PagerDutyChannel: API integration (future)
+          - WebhookChannel: Generic HTTP POST (future)
       → Update AlertHistory (status=sent or failed)
+      → Retry on failure (queue-based)
       → Increment Prometheus metrics
 ```
 
-### 4. Health Monitoring (Phase 5B)
+### 5. Health Monitoring (Phase 5B)
 ```
 During polling OR on-demand:
   → EndpointHealthService.check_endpoints()
@@ -255,356 +297,239 @@ During polling OR on-demand:
 
 ## 📁 Project Structure
 
+### Backend
 ```
 avanamy-backend/
 ├── src/avanamy/
 │   ├── api/routes/           # FastAPI endpoints
 │   │   ├── api_specs.py      # Spec upload/management
-│   │   ├── spec_versions.py  # Version history
+│   │   ├── spec_versions.py  # Version history + full schema comparison
 │   │   ├── spec_docs.py      # Documentation viewing
-│   │   ├── watched_apis.py   # Polling management (Phase 4A)
-│   │   └── alert_configs.py  # Alert configuration (Phase 5A)
+│   │   ├── watched_apis.py   # Polling management
+│   │   ├── alert_configs.py  # Alert configuration CRUD
+│   │   └── health.py         # Endpoint health API
 │   ├── services/             # Business logic
-│   │   ├── api_spec_service.py         # Spec storage & versioning
-│   │   ├── spec_normalizer.py          # OpenAPI normalization
-│   │   ├── version_diff_service.py     # Diff computation
-│   │   ├── documentation_service.py    # Markdown/HTML generation
-│   │   ├── polling_service.py          # External API polling (Phase 4A)
-│   │   ├── alert_service.py            # Alert sending (Phase 5A)
-│   │   └── endpoint_health_service.py  # Health checks (Phase 5B)
+│   │   ├── api_spec_service.py           # Main spec management
+│   │   ├── original_spec_artifact_service.py  # NEW - Store original specs
+│   │   ├── version_diff_service.py       # FIXED - Correct artifact lookup
+│   │   ├── polling_service.py            # FIXED - UTC timestamps
+│   │   ├── alert_service.py              # Alert delivery
+│   │   ├── endpoint_health_service.py    # Health checks
+│   │   ├── documentation_service.py      # Doc generation
+│   │   └── spec_normalizer.py            # Spec normalization
+│   ├── notifications/        # NEW - Future notification service (December 26, 2024)
+│   │   ├── __init__.py
+│   │   ├── service.py        # Main notification orchestrator
+│   │   ├── channels/         # Channel implementations
+│   │   │   ├── base.py       # Abstract channel interface
+│   │   │   ├── email.py      # Email channel (SMTP)
+│   │   │   ├── slack.py      # Slack channel (future)
+│   │   │   ├── pagerduty.py  # PagerDuty channel (future)
+│   │   │   └── webhook.py    # Generic webhook (future)
+│   │   ├── models.py         # Notification-specific models
+│   │   └── queue.py          # Message queue interface
+│   ├── events/               # NEW - Event contracts for queue (December 26, 2024)
+│   │   ├── __init__.py
+│   │   └── contracts.py      # Shared event schemas
 │   ├── models/               # SQLAlchemy models
-│   │   ├── tenant.py
-│   │   ├── provider.py
-│   │   ├── api_product.py
-│   │   ├── api_spec.py
-│   │   ├── version_history.py
-│   │   ├── documentation_artifact.py
-│   │   ├── watched_api.py             # Phase 4A
-│   │   ├── alert_configuration.py     # Phase 5A
-│   │   ├── alert_history.py           # Phase 5A
-│   │   └── endpoint_health.py         # Phase 5B
-│   ├── repositories/         # Database access layer
-│   ├── db/
-│   │   ├── database.py       # SQLAlchemy setup
-│   │   └── migrations/       # Alembic migrations
-│   ├── utils/
-│   └── main.py               # FastAPI app entry point
-├── scripts/
-│   └── poll_watched_apis.py  # Cron job for polling (Phase 4A)
-├── tests/                    # Unit tests
-├── pyproject.toml            # Poetry dependencies
-└── alembic.ini               # Database migrations config
+│   ├── db/migrations/        # Alembic migrations
+│   └── main.py               # FastAPI app
+├── tests/                    # Comprehensive test suite
+│   ├── services/
+│   │   ├── test_original_spec_artifact_service.py  # NEW
+│   │   ├── test_version_diff_service.py           # NEW
+│   │   ├── test_api_spec_service.py               # UPDATED
+│   │   └── ...
+│   └── api/
+│       ├── test_spec_versions.py                  # NEW - Full schema endpoints
+│       └── ...
+└── scripts/
+    └── poll_watched_apis.py  # Cron job for polling
+```
+
+### Frontend
+```
+avanamy-dashboard/
+├── src/
+│   ├── app/
+│   │   ├── specs/[specId]/versions/[versionId]/
+│   │   │   ├── diff/page.tsx              # Summary diff view
+│   │   │   ├── full-schema/page.tsx       # NEW - Full schema comparison
+│   │   │   └── schema-diff/page.tsx       # Legacy (can be removed)
+│   │   └── watched-apis/page.tsx          # UPDATED - Poll status badges
+│   ├── components/
+│   │   ├── DiffViewer.tsx                 # UPDATED - Expandable inline diffs
+│   │   └── PollStatusBadge.tsx            # NEW - Health status indicator
+│   └── lib/
+│       ├── api.ts                         # API client
+│       └── types.ts                       # TypeScript interfaces
+└── public/
 ```
 
 ---
 
-## 🎯 Completed Phases
+## 🆕 Recent Changes (December 26, 2024 Session)
 
-### ✅ Phase 1-3: Core Functionality (Pre-existing)
-- Multi-tenant data model
-- Spec upload and storage (S3)
-- Normalized spec generation
-- Version tracking
-- Diff engine with breaking change detection
-- AI-powered summaries (Claude API)
-- Documentation generation (markdown + HTML)
-- Frontend UI for viewing specs and diffs
+### 1. Full Schema Comparison Feature
+**Problem:** Users could only see summary diffs, not the complete spec changes.
 
-### ✅ Phase 4A: External API Polling (Dec 2024)
-**What was built:**
-- `WatchedAPI` model for tracking external APIs
-- `PollingService` for fetching specs and detecting changes via SHA256
-- API endpoints: `/watched-apis/*` (create, list, get, poll)
-- Cron script: `scripts/poll_watched_apis.py` for scheduled polling
-- Automatic version creation when external specs change
-- Failure tracking with auto-pause after 5 consecutive failures
-- Tested with Stripe OpenAPI spec
+**Solution:** Added full schema comparison with rich features:
+- **Backend:** New API endpoints in `spec_versions.py`
+  - `GET /api-specs/{spec_id}/versions/{version}/original-spec` - Fetch original spec from S3
+  - `GET /api-specs/{spec_id}/versions/{version}/compare?compare_with={num}` - Compare any two versions
+- **Frontend:** New `/full-schema` page with:
+  - Unified diff view (GitHub-style)
+  - Split side-by-side view
+  - Search/filter functionality
+  - Jump to next/previous change
+  - Collapsible sections (paths, components)
+  - Compare ANY two versions via dropdowns
+  - Graceful handling of legacy versions without artifacts
 
-**Files created:**
-- `models/watched_api.py`
-- `services/polling_service.py`
-- `api/routes/watched_apis.py`
-- `scripts/poll_watched_apis.py`
-- Migration: `b809b5959ecf_add_watched_apis_table_for_phase_4a.py`
+**Files Created/Modified:**
+- Backend: `original_spec_artifact_service.py`, `spec_versions.py` (2 endpoints), `api_spec_service.py` (artifact creation)
+- Frontend: `full-schema/page.tsx`, `DiffViewer.tsx` (summary badge), `api.ts` (new functions)
 
-### ✅ Phase 5A: Breaking Change Alerts (Dec 2024)
-**What was built:**
-- `AlertConfiguration` model for storing alert destinations
-- `AlertHistory` model for audit trail
-- `AlertService` with support for email, webhook, Slack
-- API endpoints: `/alert-configs/*` (CRUD + test endpoint)
-- Integration with polling: sends alerts when breaking changes detected
-- Prometheus metrics: `alerts_sent_total`, `alerts_failed_total`
-- OpenTelemetry tracing for alert operations
-- HTML-formatted alert content for emails
-- JSON payload for webhooks
+**Tests Added:** Comprehensive unit tests via Claude Code for all backend changes
 
-**Files created:**
-- `models/alert_configuration.py`
-- `models/alert_history.py`
-- `services/alert_service.py`
-- `api/routes/alert_configs.py`
-- Migration: `e5e63baf3aa3_add_phase_5_alert_and_health_monitoring_tables.py`
+### 2. Polling Status Visibility Enhancements
+**Problem:** Users couldn't see when/why polls were failing.
 
-**Testing:**
-- Webhook alerts successfully sent and received
-- Alert history tracking confirmed working
-- Multiple alerts to same destination working
+**Solution:** Added visual poll health indicators:
+- **Frontend Component:** `PollStatusBadge.tsx`
+  - Derives status from `consecutive_failures` (0 = healthy, 1-2 = warning, 3+ = failed)
+  - Shows error tooltip on hover
+  - Color-coded (green/yellow/red)
+- **Updated:** `watched-apis/page.tsx` to display badges on each API card
 
-### ✅ Phase 5B: Endpoint Health Monitoring (Dec 2024)
-**What was built:**
-- `EndpointHealth` model for tracking endpoint status
-- `EndpointHealthService` for performing health checks
-- Endpoint extraction from OpenAPI specs (OpenAPI 3.x and Swagger 2.0)
-- HTTP requests to test each endpoint (GET, POST, PUT, DELETE)
-- Status code tracking (2xx/3xx=healthy, 5xx=unhealthy, 4xx=acceptable)
-- Response time measurement in milliseconds
-- Integration with polling: health checks run during every poll
-- Alert on endpoint failures (new failures only, not recurring)
-- Prometheus metrics: `endpoint_health_status`, `endpoint_response_time_seconds`, `endpoint_checks_total`
+**Design Decision:** No database migration needed - derive health status from existing `consecutive_failures` field
 
-**Files created:**
-- `models/endpoint_health.py`
-- `services/endpoint_health_service.py`
-- Updated `polling_service.py` to integrate health checks
+### 3. UTC Timestamp Fix
+**Problem:** Poll timestamps showed "5 hours ago" when they just happened (timezone issue).
 
-**Testing:**
-- Successfully monitored 20 Stripe API endpoints
-- All returned 401 (auth required) correctly marked as healthy
-- Health records stored in database with response times
-- No false alerts on expected auth failures
+**Solution:** Fixed `polling_service.py` to use `datetime.now(timezone.utc)` instead of `datetime.now()`
 
-### ✅ Documentation Artifact Versioning Fix (Dec 2024)
-**Problem:** Documentation artifacts (markdown, HTML) were using UPSERT logic, only keeping latest version. Inconsistent with normalized specs which stored every version.
+**Files Modified:** `polling_service.py` (lines 218, 221)
 
-**Solution:**
-- Replaced `version` string column with `version_history_id` FK
-- Changed from upsert to always create new artifact rows per version
-- Added version_history_id to normalized specs for consistency
-- Database now maintains complete history of all artifacts per version
+### 4. Version Diff Service Bug Fix
+**Problem:** Diff generation failed when version numbers had gaps (e.g., v1-7 exist, then v17).
 
-**Files modified:**
-- `models/documentation_artifact.py`
-- `services/documentation_service.py`
-- `services/normalized_spec_service.py`
-- `repositories/documentation_artifact_repository.py`
-- Migration: `97f78c990d9f_replace_version_column_with_version_history_id_fk.py`
+**Root Cause:** Code was counting artifacts and using math to find version index, breaking when artifacts were missing.
 
-**Result:** Can now query "show me v3 docs" or "compare v2 vs v5 documentation"
+**Solution:** Changed `_load_normalized_spec_for_version()` to:
+- Look up VersionHistory by version number directly
+- Find artifact by `version_history_id` FK (not by counting)
+- No longer assumes sequential versions or complete artifact history
 
-### ✅ WatchedAPI → ApiSpec Direct FK (Dec 2024)
-**Problem:** WatchedAPI had to navigate through api_product to get to api_specs, making queries complex.
+**Files Modified:** `version_diff_service.py` (lines 175-256 replaced)
 
-**Solution:**
-- Added `api_spec_id` FK directly to `WatchedAPI`
-- Added `watched_apis` relationship to `ApiSpec`
-- Backfilled existing WatchedAPI record
-- Simplified alert code to use direct FK
-
-**Files modified:**
-- `models/watched_api.py`
-- `models/api_spec.py`
-- `services/polling_service.py`
-- Migration: `0f38f020eedc_add_api_spec_id_fk_to_watched_apis.py`
-
-**Result:** Cleaner queries, easier to understand data model
-
----
-
-## 🚧 Upcoming Phases
-
-### Phase 4B: User Authentication (Next - Week 1)
-**Priority:** CRITICAL - Required before launch
-**Effort:** 12-16 hours (2 weeks)
-
-**Requirements:**
-- Production-grade security (NOT lightweight)
-- Password hashing with bcrypt
-- JWT access + refresh tokens (RS256)
-- Short-lived access tokens (15 min), long-lived refresh (7-30 days)
-- Token rotation on refresh
-- Rate limiting (10 attempts per 15 min)
-- Account lockout after 5 failed attempts
-- Password validation (12+ chars, complexity)
-- Multi-tenant security enforcement
-- PostgreSQL Row-Level Security (RLS) policies
-- Session tracking (device, IP, last active)
-- Login history / audit trail
-- Logout from all devices
-- Security headers (CORS, CSP, HSTS, etc.)
-
-**Technologies:**
-- `passlib` for password hashing
-- `python-jose` for JWT
-- `slowapi` for rate limiting
-- PostgreSQL RLS for tenant isolation
-
-**NO shortcuts:** Security is non-negotiable. Cost control means building it ourselves, not cutting corners.
-
-### Phase 6: Frontend Dashboard (Week 1-2)
-**Priority:** HIGH - Makes testing and validation much easier
-**Effort:** 8-12 hours
-
-**Features needed:**
-- Dashboard showing all watched APIs
-- Alert configuration UI (create, edit, delete alert configs)
-- Health status visualizations (endpoint uptime charts)
-- Version history timeline (visual diff viewer)
-- Manual poll trigger button
-- Alert history viewer
-- Real-time health status indicators
-
-**Why before billing:** UI will make development faster and catch bugs earlier.
-
-### Phase 7: Billing/Stripe Integration (Week 2)
-**Priority:** HIGH - Required for revenue
-**Effort:** 6-8 hours
+### 5. Expandable Inline Diffs
+**Enhancement:** Added expandable GitHub-style diffs to change cards in summary view.
 
 **Features:**
-- Stripe subscription setup
-- Usage-based pricing (track API calls, versions, endpoints monitored)
-- Payment webhooks
-- Plan limits (free tier, pro tier, enterprise)
-- Billing portal
-- Usage dashboard
+- Click "View Details" to expand inline diff
+- Shows line-by-line changes with +/- markers
+- Collapsible to save space
+- Summary badge showing change counts (added/removed/modified)
 
-### Phase 8: Embeddings & Semantic Search (Week 3)
-**Priority:** MEDIUM - Differentiation feature
-**Effort:** 10-15 hours
+**Files Modified:** `DiffViewer.tsx`
 
-**Features:**
-- Generate embeddings for endpoints and models per version
-- Store vectors (options: Pinecone, pgvector, Weaviate)
-- Build search APIs: "show me all endpoints dealing with orders"
-- Natural language queries: "how do I create a customer?"
-- Semantic similarity between API versions
-- Search across all tenant's APIs
+### 6. Graceful Legacy Version Handling
+**Problem:** Old versions don't have `original_spec` artifacts, causing 404 errors.
 
-**Technical approach:**
-- Use Claude API to generate embeddings
-- Store in dedicated embeddings table or vector DB
-- Build RAG pipeline for queries
-- Cache embeddings per version (immutable)
+**Solution:** Graceful degradation in UI:
+- Backend returns detailed error with `is_legacy_version` flag
+- Frontend shows friendly yellow warning instead of red error
+- Explains why comparison isn't available
+- Provides "View Summary Diff Instead" button as alternative
 
-### Phase 9: AI-Generated Guides & Examples (Week 3-4)
-**Priority:** MEDIUM - High-value feature
-**Effort:** 8-12 hours
+**Files Modified:** 
+- Backend: `spec_versions.py` (enhanced error responses)
+- Frontend: `full-schema/page.tsx` (error handling and state reset)
 
-**Features:**
-- Generate quickstart guides per API
-- Code examples for common operations (create user, place order, etc.)
-- Integration tutorials (step-by-step)
-- Best practices and gotchas
-- Language-specific examples (Python, JavaScript, cURL)
-- Store as new artifact types (alongside markdown/html)
+### 7. Frontend State Management Fixes
+**Problems:** 
+- Stale version selections when navigating
+- Attempting to compare non-existent versions
 
-**Technical approach:**
-- Use Claude API with spec + historical change logs
-- Generate on version creation
-- Cache in S3 as artifacts
-- Regenerate on major version changes
+**Solutions:**
+- Reset comparison state when `currentVersionId` changes
+- Validate selected versions exist in available versions
+- Auto-correct to nearest valid version
 
-### Phase 10: SDK Generation (Week 4)
-**Priority:** MEDIUM - High customer value
-**Effort:** 12-16 hours
+**Files Modified:** `full-schema/page.tsx` (2 new useEffect hooks)
 
-**Features:**
-- Generate client SDKs from OpenAPI specs
-- Support languages: Python, JavaScript/TypeScript, Go
-- Versioned SDKs per spec version
-- Download as zip or publish to package managers
-- Auto-generated types/interfaces
-- Error handling and retries built-in
+### 8. Notification Service Architecture (Design Only)
+**Decision:** Design notifications as queue-based async service ready for decoupling.
 
-**Technical approach:**
-- Use openapi-generator or custom generator
-- Store generated SDKs in S3
-- Provide download links
-- Consider GitHub releases for versioning
+**Architecture:**
+- Channel pattern for extensibility (Email, Slack, PagerDuty, webhooks)
+- Message queue (Redis/RabbitMQ) for async delivery
+- Separate `notifications/` module (same codebase initially)
+- Event contracts for loose coupling
+- Config-driven (can flip to external service via env var)
 
-### Phase 11: Advanced RBAC (Week 5)
-**Priority:** LOW - Enterprise feature
-**Effort:** 8-10 hours
+**Migration Path:**
+- Phase 1: Internal module with queue
+- Phase 2: Extract to separate microservice when scale demands
+- No code changes needed - just deployment change
 
-**Features:**
-- Roles within tenant: Admin, Viewer, Integrator
-- Permission system (read, write, delete per resource)
-- Provider-level access control
-- API key management per user
-- Audit trail for permission changes
-
-**Why later:** Not needed until enterprise customers with teams.
-
----
-
-## 🐛 Known Issues & Technical Debt
-
-### Current Issues
-1. **Diff storage contains JSON `null`** for some versions instead of actual diffs
-   - Older versions have `diff IS NOT NULL` but value is JSON literal `null`
-   - New versions store diffs correctly
-   - Not blocking but should investigate why
-
-2. **Hardcoded tenant_id** in API endpoints
-   - Currently using `11111111-1111-1111-1111-111111111111` everywhere
-   - Will be replaced with JWT-based tenant extraction in Phase 4B
-
-3. **No email sending implemented**
-   - Alert service logs "would send email" but doesn't actually send
-   - Need SMTP configuration or SendGrid/Postmark integration
-   - Webhooks work, email is mocked
-
-4. **No Slack integration**
-   - Slack alert type exists but not implemented
-   - Need Slack webhook URL support
-   - Lower priority than email/webhook
-
-### Alembic Migration Quirks
-- Alembic autogenerate always detects noise (FK changes, index changes)
-- Solution: Manually clean every migration file to only include intended changes
-- Pattern established: Generate → Clean → Apply
-- Watch out for: `ix_watched_apis_*` indexes getting dropped/recreated
-
-### Testing Gaps (Being Filled)
-- Claude Code currently writing comprehensive unit tests for Phase 5
-- Need integration tests for full polling → alert flow
-- Need load tests for polling at scale (100+ watched APIs)
-
----
-
-## 🔧 Development Practices
-
-### Database Migrations
-**Always use Alembic, never manual SQL:**
-```bash
-# Generate migration
-poetry run alembic revision --autogenerate -m "description"
-
-# Clean the migration file (remove noise)
-# Keep only intended changes
-
-# Apply migration
-poetry run alembic upgrade head
+**Files Structure Planned:**
+```
+src/avanamy/notifications/
+├── channels/
+│   ├── base.py
+│   ├── email.py
+│   ├── slack.py (future)
+│   └── pagerduty.py (future)
+├── service.py
+├── models.py
+└── queue.py
 ```
 
-### Code Quality
-- Type hints on all functions
-- Docstrings for public methods
-- OpenTelemetry spans for observability
-- Prometheus metrics for monitoring
-- Structured logging with context
+---
 
-### Testing Strategy
-**Tier 1 (Critical):** Customer-facing flows, error handling, data integrity
-**Tier 2 (Important):** Edge cases, validation, error messages
+## 🧪 Testing Strategy
+
+### Test Coverage (December 26, 2024)
+
+**New Tests Added via Claude Code:**
+
+1. **`test_original_spec_artifact_service.py`** (NEW)
+   - Tests artifact creation and linking
+   - S3 path storage validation
+   - Error handling
+   - UUID conversion
+
+2. **`test_version_diff_service.py`** (NEW)
+   - 12 comprehensive tests
+   - Critical: Version gap handling (the bug fix)
+   - Diff computation validation
+   - Artifact loading with FK lookup
+
+3. **`test_api_spec_service.py`** (UPDATED)
+   - Tests that `update_api_spec_file()` creates original_spec artifacts
+   - Error handling for artifact storage failures
+   - Validates initial uploads don't call artifact service
+
+4. **`test_spec_versions.py`** (NEW)
+   - Tests for new full schema comparison endpoints
+   - GET original spec endpoint
+   - GET compare endpoint
+   - Tenant validation, 404 handling
+   - JSON/YAML support
+
+### Testing Philosophy
+**Tier 1 (Critical):** Customer-facing flows, error handling, data integrity  
+**Tier 2 (Important):** Edge cases, validation, error messages  
 **Tier 3 (Nice):** Model __repr__, obscure scenarios
 
-**Philosophy:** Comprehensive tests are worth it because we won't come back to add them later.
+**Approach:** Comprehensive tests written upfront because we won't come back to add them later.
 
 ### Git Workflow
 - Descriptive commit messages with context
 - Squash related changes into single commits
-- Reference phase numbers in commits (e.g., "feat: Phase 5A - ...")
+- Reference features in commits (e.g., "feat: Full schema diff viewer with search/navigation")
 
 ---
 
@@ -625,6 +550,7 @@ poetry run alembic upgrade head
 - `api_changes_detected_total{watched_api_id, breaking}`
 - `polling_attempts_total{watched_api_id, status}`
 - `version_creation_duration_seconds{api_spec_id}`
+- `notification_delivery_duration_seconds{channel_type}` ← For notification service
 
 ### OpenTelemetry Tracing
 - Configured with Jaeger exporter
@@ -633,13 +559,15 @@ poetry run alembic upgrade head
   - `alert.send_individual`
   - `health.check_endpoint`
   - `db.create_documentation_artifact`
-  - `s3.upload`
+  - `s3.upload` / `s3.download`
   - `service.store_api_spec`
+  - `artifact.store_original_spec` ← NEW
+  - `diff.load_normalized_spec` ← FIXED
 
 ### Logging
 - Structured logging with context (tenant_id, spec_id, etc.)
 - Log levels: INFO for normal ops, WARNING for issues, ERROR for failures
-- Log rotation configured
+- **Updated (December 26, 2024):** Using `console.log` in frontend for graceful errors (not `console.error`) to avoid false "issues" badges
 
 ---
 
@@ -665,6 +593,7 @@ poetry run alembic upgrade head
 - IP whitelisting for webhooks
 - Encryption at rest for sensitive data
 - SOC 2 compliance preparation
+- **Notification security:** HMAC signatures for webhooks, encrypted channel configs
 
 ---
 
@@ -678,6 +607,7 @@ poetry run alembic upgrade head
 - 100 endpoints monitored
 - Email alerts only
 - 30-day history
+- Summary diffs only
 
 **Pro Tier ($49/mo):**
 - 10 watched APIs
@@ -685,17 +615,19 @@ poetry run alembic upgrade head
 - Unlimited endpoints
 - All alert types (email, webhook, Slack)
 - Unlimited history
+- **Full schema comparison** ← NEW FEATURE
 - API access
 - Priority support
 
 **Enterprise Tier (Custom):**
 - Unlimited watched APIs
 - Real-time polling
-- Custom integrations
+- Custom integrations (PagerDuty, etc.)
 - Dedicated support
 - SSO / SAML
 - SLA guarantees
 - On-premise option
+- Custom notification channels
 
 ### Revenue Model
 - Subscription-based (Stripe)
@@ -706,18 +638,24 @@ poetry run alembic upgrade head
 
 ## 🎓 Key Learnings
 
-### What Worked Well
+### What Worked Well (Updated December 26, 2024)
 1. **Multi-tenant from day 1** - Easier than retrofitting later
-2. **Version-scoped artifacts** - Enables rollback and historical viewing
+2. **Version-scoped artifacts** - Enables rollback, historical viewing, and full schema diffs
 3. **Comprehensive testing with Claude Code** - Catches bugs early, enables confident refactoring
-4. **Direct FK relationships** - Simpler queries, clearer data model
+4. **Direct FK relationships** - Simpler queries, clearer data model (version_history_id for artifacts)
 5. **Observability from start** - OpenTelemetry + Prometheus makes debugging trivial
+6. **Queue-based async design** - Sets up notification service for easy scaling
+7. **Graceful degradation** - Legacy versions handled with clear messaging, not errors
+8. **Client-side diff computation** - Keeps backend simple, enables rich UI features
 
 ### What Was Tricky
 1. **Alembic autogenerate noise** - Required manual cleanup of every migration
 2. **ApiProduct → ApiSpec relationship** - Initially indirect, caused confusion
 3. **Documentation artifact versioning** - Took iteration to get right (upsert → versioned)
 4. **Testing async code** - Required pytest-asyncio and careful mocking
+5. **Version gap handling** - Artifact lookup by counting broke with gaps in version numbers
+6. **Timezone issues** - Needed UTC timestamps for accurate "time ago" displays
+7. **State management in React** - Stale selections when navigating between versions
 
 ### Design Patterns That Paid Off
 1. **Service layer separation** - Business logic not in routes
@@ -725,6 +663,9 @@ poetry run alembic upgrade head
 3. **OpenTelemetry spans** - Debug production issues easily
 4. **Prometheus metrics** - Real-time monitoring without logging hell
 5. **S3 for artifacts** - Scales better than database for large files
+6. **Channel pattern** - Easy to add new notification types
+7. **Queue-based async** - Decouples slow operations (email, webhooks)
+8. **Derived state** - Poll health from consecutive_failures (no migration needed)
 
 ---
 
@@ -732,16 +673,20 @@ poetry run alembic upgrade head
 
 ### Environment Setup
 ```bash
-# Install dependencies
+# Backend
+cd avanamy-backend
 poetry install
-
-# Run migrations
 poetry run alembic upgrade head
-
-# Start backend
 poetry run uvicorn avanamy.main:app --reload
 
+# Frontend
+cd avanamy-dashboard
+npm install
+npm install diff @types/diff  # For full schema comparison
+npm run dev
+
 # Run tests
+cd avanamy-backend
 poetry run pytest tests/ -v
 
 # Run polling script
@@ -757,17 +702,30 @@ psql -h localhost -U postgres -d avanamy_dev
 SELECT COUNT(*) FROM watched_apis;
 SELECT * FROM alert_history ORDER BY created_at DESC LIMIT 10;
 SELECT * FROM endpoint_health WHERE is_healthy = false;
+
+# Check artifact types
+SELECT artifact_type, COUNT(*) 
+FROM documentation_artifacts 
+GROUP BY artifact_type;
+
+# Find versions missing original_spec artifacts
+SELECT vh.version, vh.api_spec_id
+FROM version_history vh
+LEFT JOIN documentation_artifacts da 
+  ON da.version_history_id = vh.id 
+  AND da.artifact_type = 'original_spec'
+WHERE da.id IS NULL;
 ```
 
-### S3 Structure
+### S3 Structure (Updated December 26, 2024)
 ```
 avanamy-dev/
 └── tenants/{tenant_id}/
     └── providers/{provider_slug}/
         └── api_products/{product_slug}/
-            ├── raw/{spec_id}-{filename}
-            └── versions/v{N}/
-                ├── normalized/{spec_id}-{filename}.json
+            └── versions/{version}/
+                ├── specs/{spec_id}/{filename}              # ← NEW: Original specs
+                ├── normalized/{spec_id}-{slug}.json        # Normalized specs
                 └── docs/
                     ├── markdown/{spec_id}-{filename}.md
                     └── html/{spec_id}-{filename}.html
@@ -798,19 +756,46 @@ from avanamy.models.alert_history import AlertHistory
 alerts = db.query(AlertHistory).order_by(AlertHistory.created_at.desc()).limit(5).all()
 for alert in alerts:
     print(f"{alert.alert_reason}: {alert.status}")
+
+# Check artifact types for a spec
+from avanamy.models.documentation_artifact import DocumentationArtifact
+
+artifacts = db.query(DocumentationArtifact).filter(
+    DocumentationArtifact.api_spec_id == 'some-uuid'
+).all()
+for a in artifacts:
+    print(f"v{a.version_history.version}: {a.artifact_type}")
 ```
 
 ---
 
-## 🚀 Next Steps (Immediate)
+## 🚀 Next Steps (Updated December 26, 2024)
 
-1. **Wait for Claude Code unit tests** (in progress)
-2. **Review and run tests** - Ensure all pass
-3. **Commit Phase 5** with comprehensive commit message
-4. **Start Phase 4B (Auth)** - Build production-grade authentication
-5. **Build Phase 6 (UI)** - Dashboard for easy testing and validation
-6. **Deploy Phase 7 (Billing)** - Enable revenue generation
-7. **Ship to beta customers** - Get real feedback
+### Immediate (This Week)
+1. ✅ **Full schema comparison** - COMPLETE
+2. ✅ **Polling status visibility** - COMPLETE
+3. ✅ **UTC timestamp fix** - COMPLETE
+4. ✅ **Version diff bug fix** - COMPLETE
+5. ✅ **Graceful legacy handling** - COMPLETE
+6. **Implement notification service**
+   - Start with email channel
+   - Set up message queue (Redis)
+   - Design for future Slack/PagerDuty
+
+### Near-Term (Next 2 Weeks)
+7. **Complete notification channels**
+   - Email (SMTP)
+   - Slack webhooks
+   - Generic webhook support
+8. **Phase 4B (Auth)** - Build production-grade authentication
+9. **Build Phase 6 (UI)** - Polish dashboard
+10. **Deploy Phase 7 (Billing)** - Enable revenue generation
+
+### Medium-Term (Next Month)
+11. **Ship to beta customers** - Get real feedback
+12. **Monitoring & Alerting** - Set up Prometheus + Grafana
+13. **Performance optimization** - Profile and optimize slow queries
+14. **Documentation** - Write user-facing docs
 
 ---
 
@@ -818,12 +803,12 @@ for alert in alerts:
 
 **When starting a new conversation about Avanamy, share this document and add:**
 
-1. **What phase you're working on** (e.g., "Starting Phase 4B - Auth")
-2. **Specific goal** (e.g., "Need to implement JWT refresh tokens")
-3. **Any blockers or questions** (e.g., "Should we use RS256 or HS256?")
-4. **Recent changes** (e.g., "Just finished unit tests for Phase 5")
+1. **What phase you're working on** (e.g., "Building notification service")
+2. **Specific goal** (e.g., "Implementing email channel with SMTP")
+3. **Any blockers or questions** (e.g., "Should we use SendGrid or AWS SES?")
+4. **Recent changes** (e.g., "Just finished full schema diff feature")
 
-**This document should be updated after each major phase with:**
+**This document should be updated after each major feature with:**
 - New tables/models added
 - New endpoints created
 - Key design decisions made
@@ -832,14 +817,43 @@ for alert in alerts:
 
 ---
 
+## 🐛 Known Issues & Future Improvements
+
+### Known Issues (December 26, 2024)
+1. **Legacy versions** - Versions created before December 26, 2024 don't have original_spec artifacts
+   - Impact: Cannot do full schema comparison on old versions
+   - Solution: Gracefully handled with clear messaging
+   - Future: Could backfill by re-uploading specs
+
+2. **Poll timestamp display** - ✅ FIXED - Was showing wrong timezone
+   
+3. **Version gaps** - ✅ FIXED - Diff service now handles non-sequential versions
+
+4. **Console errors on graceful failures** - ✅ FIXED - Using console.log instead of console.error
+
+### Future Improvements
+1. **Search in diffs** - Add Ctrl+F style search in full schema view
+2. **Diff export** - Download diff as patch file
+3. **Version comparison matrix** - Compare any N versions side-by-side
+4. **Syntax highlighting** - Better JSON/YAML highlighting in diffs
+5. **Performance** - Lazy load large specs, virtualize long diffs
+6. **Notification templates** - Customizable alert message templates
+7. **Retry logic** - Automatic retry for failed notifications
+8. **Notification history UI** - Show delivery status in dashboard
+
+---
+
 ## 📚 External Resources
 
 ### Documentation
 - FastAPI: https://fastapi.tiangolo.com/
+- Next.js: https://nextjs.org/docs
 - SQLAlchemy: https://docs.sqlalchemy.org/
 - Alembic: https://alembic.sqlalchemy.org/
 - OpenTelemetry: https://opentelemetry.io/docs/languages/python/
 - Prometheus: https://prometheus.io/docs/
+- Tailwind CSS: https://tailwindcss.com/docs
+- TypeScript: https://www.typescriptlang.org/docs/
 
 ### APIs Used
 - Anthropic Claude: https://docs.anthropic.com/
@@ -850,10 +864,53 @@ for alert in alerts:
 - Webhook testing: https://webhook.site/
 - OpenAPI validator: https://apitools.dev/swagger-parser/online/
 - JWT debugger: https://jwt.io/
+- Diff library (npm): https://github.com/kpdecker/jsdiff
+
+### Libraries Added (December 26, 2024)
+- **diff** (npm) - Client-side diff computation
+- **@types/diff** (npm) - TypeScript types for diff library
+
+---
+
+## 📊 Session Summary (December 26, 2024)
+
+### What We Built
+1. **Full schema comparison** with search, navigation, collapsible sections, and version selection
+2. **Poll status visibility** with health badges and error tooltips
+3. **Original spec storage** for enabling full schema diffs
+4. **Bug fixes** for UTC timestamps and version diff lookup
+5. **Graceful degradation** for legacy versions
+6. **Notification service architecture** (design phase)
+
+### Files Created
+- Backend: `original_spec_artifact_service.py`
+- Frontend: `full-schema/page.tsx`, `PollStatusBadge.tsx`
+- Tests: `test_original_spec_artifact_service.py`, `test_version_diff_service.py`, updated `test_api_spec_service.py`, new `test_spec_versions.py`
+
+### Files Modified
+- Backend: `api_spec_service.py`, `version_diff_service.py`, `polling_service.py`, `spec_versions.py`
+- Frontend: `DiffViewer.tsx`, `api.ts`, `types.ts`, `watched-apis/page.tsx`, `diff/page.tsx`
+
+### Commits Made
+- Backend: Full schema diff infrastructure, polling enhancements, bug fixes
+- Frontend: Full schema viewer, poll status badges, graceful error handling
+- Tests: Comprehensive coverage for all new features
+
+### Lines of Code Added
+- Backend: ~500 lines
+- Frontend: ~600 lines
+- Tests: ~400 lines
+- **Total:** ~1,500 lines across 20+ files
+
+### Time Investment
+- **Session Duration:** ~4 hours
+- **Features Shipped:** 6 major features
+- **Bugs Fixed:** 4 critical bugs
+- **Tests Added:** 30+ comprehensive tests
 
 ---
 
 **End of Living Document**  
-**Version:** 1.0  
-**Last Updated:** December 22, 2024  
-**Status:** Phase 5 Complete, Moving to Phase 4B
+**Version:** 2.0  
+**Last Updated:** December 26, 2024  
+**Status:** Phase 5 Complete + Full Schema Diff + Ready for Notification Service
