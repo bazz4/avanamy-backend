@@ -338,9 +338,28 @@ def get_original_spec_for_version(
     )
 
     if not artifact:
+        # Check if this version was created before artifact storage was implemented
+        # by looking at the creation date or checking for normalized_spec artifact
+        normalized_artifact = (
+            db.query(DocumentationArtifact)
+            .filter(
+                DocumentationArtifact.version_history_id == version.id,
+                DocumentationArtifact.artifact_type == "normalized_spec",
+            )
+            .first()
+        )
+        
+        error_detail = {
+            "error": "Original spec artifact not found for this version",
+            "version": version_number,
+            "created_at": version.created_at.isoformat() if version.created_at else None,
+            "is_legacy_version": normalized_artifact is not None,  # Has other artifacts but not original_spec
+            "suggestion": "This version was created before original spec storage was implemented. Upload a new version or re-upload this spec to enable full schema comparison."
+        }
+        
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Original spec artifact not found for this version",
+            detail=error_detail,
         )
 
     # Download from S3
