@@ -380,6 +380,23 @@ def update_api_spec_file(
         spec.original_file_s3_path = generate_s3_url(final_key)
 
         # --------------------------------------------------------------------
+        # 4.5. Store original spec artifact reference
+        # --------------------------------------------------------------------
+        try:
+            from avanamy.services.original_spec_artifact_service import store_original_spec_artifact
+            
+            store_original_spec_artifact(
+                db,
+                tenant_id=tenant.id,
+                api_spec_id=spec.id,
+                version_history_id=vh.id,
+                s3_path=final_key,
+            )
+        except Exception:
+            logger.exception("Failed storing original spec artifact for spec %s", spec.id)
+
+
+        # --------------------------------------------------------------------
         # 5. Update spec fields
         # --------------------------------------------------------------------
         if description is not None:
