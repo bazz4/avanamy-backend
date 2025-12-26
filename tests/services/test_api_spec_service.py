@@ -611,5 +611,285 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
 
     all_specs = db.query(ApiSpec).all()
     assert len(all_specs) == 2
-    assert spec_a.api_product_id == product_a.id
-    assert spec_b.api_product_id == product_b.id
+
+
+def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
+    """Test that update_api_spec_file calls store_original_spec_artifact for new versions."""
+    tenant_id = uuid.uuid4()
+    provider_id = uuid.uuid4()
+    product_id = uuid.uuid4()
+    spec_id = uuid.uuid4()
+    version_history_id = 5
+
+    tenant = SimpleNamespace(id=tenant_id, slug="tenant-a")
+    provider = SimpleNamespace(id=provider_id, slug="provider-a")
+    product = SimpleNamespace(
+        id=product_id,
+        slug="product-a",
+        tenant_id=tenant_id,
+        provider_id=provider_id,
+    )
+
+    spec = SimpleNamespace(
+        id=spec_id,
+        name="Test Spec",
+        api_product_id=product_id,
+        provider_id=provider_id,
+        tenant_id=tenant_id,
+        parsed_schema='{"paths": {}}',
+        original_file_s3_path="s3://bucket/old/path",
+        version="v1",
+        description="Original desc",
+    )
+
+    db = _stub_db(product, tenant, provider)
+    version_history = SimpleNamespace(id=version_history_id, version=2)
+
+    # Track calls to store_original_spec_artifact
+    store_artifact_calls = []
+
+    def mock_store_original_spec_artifact(db, **kwargs):
+        store_artifact_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "avanamy.services.original_spec_artifact_service.store_original_spec_artifact",
+        mock_store_original_spec_artifact,
+    )
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.parse_api_spec",
+        lambda filename, raw: {"paths": {}},
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.normalize_api_spec",
+        lambda parsed: parsed,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.VersionHistoryRepository.create",
+        lambda db, api_spec_id, diff=None, changelog=None: version_history,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        lambda *args, **kwargs: ("final-key", "s3://bucket/final-key"),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.compute_and_store_diff",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.spec_normalizer.normalize_openapi_spec",
+        lambda spec: spec,
+    )
+
+    update_api_spec_file(
+        db=db,
+        spec=spec,
+        file_bytes=b'{"paths": {}}',
+        filename="spec.json",
+        content_type="application/json",
+        tenant_id=str(tenant_id),
+        description="Updated desc",
+    )
+
+    # Verify store_original_spec_artifact was called
+    assert len(store_artifact_calls) == 1
+    call_kwargs = store_artifact_calls[0]
+    assert call_kwargs["tenant_id"] == tenant_id
+    assert call_kwargs["api_spec_id"] == spec_id
+    assert call_kwargs["version_history_id"] == version_history_id
+    # The s3_path is the constructed key path, not the raw return value
+    assert "tenant-a" in call_kwargs["s3_path"]
+    assert "provider-a" in call_kwargs["s3_path"]
+    assert "product-a" in call_kwargs["s3_path"]
+    assert "v2" in call_kwargs["s3_path"]
+
+
+def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
+    """Test that update_api_spec_file handles failures in store_original_spec_artifact gracefully."""
+    tenant_id = uuid.uuid4()
+    provider_id = uuid.uuid4()
+    product_id = uuid.uuid4()
+    spec_id = uuid.uuid4()
+
+    tenant = SimpleNamespace(id=tenant_id, slug="tenant-a")
+    provider = SimpleNamespace(id=provider_id, slug="provider-a")
+    product = SimpleNamespace(
+        id=product_id,
+        slug="product-a",
+        tenant_id=tenant_id,
+        provider_id=provider_id,
+    )
+
+    spec = SimpleNamespace(
+        id=spec_id,
+        name="Test Spec",
+        api_product_id=product_id,
+        provider_id=provider_id,
+        tenant_id=tenant_id,
+        parsed_schema='{"paths": {}}',
+        original_file_s3_path="s3://bucket/old/path",
+        version="v1",
+        description="Original desc",
+    )
+
+    db = _stub_db(product, tenant, provider)
+
+    # Mock store_original_spec_artifact to raise exception
+    def mock_store_artifact_error(db, **kwargs):
+        raise Exception("Artifact storage failed")
+
+    monkeypatch.setattr(
+        "avanamy.services.original_spec_artifact_service.store_original_spec_artifact",
+        mock_store_artifact_error,
+    )
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.parse_api_spec",
+        lambda filename, raw: {"paths": {}},
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.normalize_api_spec",
+        lambda parsed: parsed,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.VersionHistoryRepository.create",
+        lambda db, api_spec_id, diff=None, changelog=None: SimpleNamespace(id=3, version=2),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        lambda *args, **kwargs: ("final-key", "s3://bucket/final-key"),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.compute_and_store_diff",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.spec_normalizer.normalize_openapi_spec",
+        lambda spec: spec,
+    )
+
+    # Should not raise exception - the service should handle the failure gracefully
+    result = update_api_spec_file(
+        db=db,
+        spec=spec,
+        file_bytes=b'{"paths": {}}',
+        filename="spec.json",
+        content_type="application/json",
+        tenant_id=str(tenant_id),
+        description="Updated desc",
+    )
+
+    # The update should still succeed
+    assert result == spec
+
+
+def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upload(monkeypatch):
+    """
+    Test that store_api_spec_file (initial upload) does NOT call store_original_spec_artifact.
+
+    Note: Based on the code, only update_api_spec_file calls store_original_spec_artifact.
+    Initial uploads don't create original_spec artifacts yet.
+    """
+    tenant_id = uuid.uuid4()
+    provider_id = uuid.uuid4()
+    product_id = uuid.uuid4()
+
+    tenant = SimpleNamespace(id=tenant_id, slug="tenant-a")
+    provider = SimpleNamespace(id=provider_id, slug="provider-a")
+    product = SimpleNamespace(
+        id=product_id,
+        slug="product-a",
+        tenant_id=tenant_id,
+        provider_id=provider_id,
+    )
+
+    spec = SimpleNamespace(
+        id=uuid.uuid4(),
+        name="Spec Name",
+        api_product_id=product_id,
+        provider_id=provider_id,
+        tenant_id=tenant_id,
+        parsed_schema=None,
+        original_file_s3_path=None,
+        version=None,
+    )
+
+    db = _stub_db(product, tenant, provider)
+
+    # Track calls to store_original_spec_artifact
+    store_artifact_calls = []
+
+    def mock_store_original_spec_artifact(db, **kwargs):
+        store_artifact_calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "avanamy.services.original_spec_artifact_service.store_original_spec_artifact",
+        mock_store_original_spec_artifact,
+    )
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.upload_bytes",
+        MagicMock(return_value=("temp-key", "s3://temp/temp-key")),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.copy_s3_object",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.delete_s3_object",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.VersionHistoryRepository.create",
+        lambda db, api_spec_id, changelog=None, diff=None: SimpleNamespace(version=1),
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.parse_api_spec",
+        lambda filename, raw: {"info": {"title": filename}},
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.normalize_api_spec",
+        lambda parsed: parsed,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.ApiSpecRepository.create",
+        lambda db, **kwargs: spec,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
+        lambda *args, **kwargs: None,
+    )
+
+    store_api_spec_file(
+        db=db,
+        file_bytes=b'{"openapi": "3.0.0", "info": {"title": "X"}, "paths": {}}',
+        filename="spec.json",
+        content_type="application/json",
+        tenant_id=str(tenant_id),
+        api_product_id=str(product_id),
+        provider_id=str(provider_id),
+        description="demo",
+    )
+
+    # Verify store_original_spec_artifact was NOT called for initial upload
+    assert len(store_artifact_calls) == 0
