@@ -8,7 +8,7 @@ and creates new versions automatically.
 import hashlib
 import httpx
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -215,10 +215,10 @@ class PollingService:
         error: Optional[str]
     ):
         """Update polling tracking fields on the WatchedAPI."""
-        watched_api.last_polled_at = datetime.now()
+        watched_api.last_polled_at = datetime.now(timezone.utc)
         
         if success:
-            watched_api.last_successful_poll_at = datetime.now()
+            watched_api.last_successful_poll_at = datetime.now(timezone.utc)
             watched_api.consecutive_failures = 0
             watched_api.last_error = None
             watched_api.status = "active"
