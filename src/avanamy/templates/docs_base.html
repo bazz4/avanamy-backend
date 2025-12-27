@@ -1,48 +1,738 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8" />
-    <title>{{ title }}</title>
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ provider_name }} • {{ product_name }} • {{ version_label }}</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 56 56' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 48 L8 48 L12 40 L16 48 L22 12 L28 48 L34 16 L40 40 L44 32 L48 32 L54 32' stroke='url(%23pulseGradient)' stroke-width='3' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cline x1='20' y1='32' x2='36' y2='32' stroke='%2300CCFF' stroke-width='3.5' stroke-linecap='round'/%3E%3Ccircle cx='28' cy='32' r='3.5' fill='%2300CCFF'/%3E%3Cdefs%3E%3ClinearGradient id='pulseGradient' x1='2' y1='28' x2='54' y2='28'%3E%3Cstop offset='0%25' stop-color='%23B800E6'/%3E%3Cstop offset='50%25' stop-color='%2300CCFF'/%3E%3Cstop offset='100%25' stop-color='%23B800E6'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E">
+    
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            /* Avanamy Brand Colors */
+            --avanamy-purple: #8b5cf6;
+            --avanamy-cyan: #06b6d4;
+        }
+
+        /* Light Theme - Match Dashboard */
+        [data-theme="light"] {
+            --bg-main: #ffffff;
+            --bg-sidebar: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --table-bg: #f8fafc;
+            --table-header-bg: #f8fafc;
+            --table-hover: #f1f5f9;
+            --callout-info-bg: #eff6ff;
+            --callout-info-text: #075985;
+            --callout-warning-bg: #fffbeb;
+            --callout-warning-text: #92400e;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+        }
+
+        /* Dark Theme - Match Dashboard */
+        [data-theme="dark"] {
+            --bg-main: #091124;
+            --bg-sidebar: #040a1d;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-light: #94a3b8;
+            --border: #334155;
+            --table-bg: #1e293b;
+            --table-header-bg: #334155;
+            --table-hover: #334155;
+            --callout-info-bg: #0c4a6e;
+            --callout-info-text: #7dd3fc;
+            --callout-warning-bg: #713f12;
+            --callout-warning-text: #fbbf24;
+            --code-bg: #0f172a;
+            --code-text: #e2e8f0;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                         Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-            line-height: 1.6;
-            max-width: 860px;
+            font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            color: var(--text-primary);
+            background: var(--bg-main);
+        }
+
+        /* LAYOUT */
+        .docs-wrapper {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            min-height: 100vh;
+            width: 100%;
+        }
+
+        @media (max-width: 1024px) {
+            .docs-wrapper {
+                grid-template-columns: 240px 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .docs-wrapper {
+                grid-template-columns: 1fr;
+            }
+            
+            .docs-nav {
+                position: relative;
+                height: auto;
+                border-bottom: 1px solid var(--border);
+            }
+        }
+
+        /* LEFT SIDEBAR */
+        .docs-nav {
+            background: var(--bg-sidebar);
+            color: var(--text-light);
+            padding: 24px 0 0 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .docs-nav::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .docs-nav::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 3px;
+        }
+
+        .docs-nav-header {
+            padding: 0 24px 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+
+        .docs-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .docs-title {
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .docs-subtitle {
+            color: var(--text-light);
+            font-size: 12px;
+        }
+
+        .nav-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .docs-nav ul {
+            list-style: none;
+        }
+
+        .docs-nav a {
+            display: block;
+            padding: 6px 24px;
+            color: var(--text-light);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.15s;
+            border-left: 2px solid transparent;
+        }
+
+        .docs-nav a:hover {
+            color: var(--text-primary);
+            background: rgba(139, 92, 246, 0.05);
+            border-left-color: var(--avanamy-purple);
+        }
+
+        /* Theme Toggle - Bottom of Sidebar */
+        .theme-toggle {
+            margin-top: auto;
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: var(--text-light);
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .theme-toggle:hover {
+            background: rgba(139, 92, 246, 0.05);
+            color: var(--text-primary);
+        }
+
+        .theme-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* MAIN CONTENT */
+        .docs-content {
+            padding: 48px;
+            background: var(--bg-main);
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 2rem;
+            width: 100%;
+        }
+
+        @media (max-width: 768px) {
+            .docs-content {
+                padding: 24px 20px;
+            }
+        }
+
+        /* PROVIDER/PRODUCT HEADER */
+        .provider-product-header {
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .breadcrumb {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .main-title {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--avanamy-purple) 0%, var(--avanamy-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0 0 12px 0;
+            line-height: 1.2;
+        }
+
+        .version-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .version-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 16px;
+            background: linear-gradient(135deg, var(--avanamy-purple) 0%, var(--avanamy-cyan) 100%);
+            color: white;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        .spec-version {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* Hide redundant version from markdown */
+        .docs-content > h1:first-of-type,
+        .docs-content > p:first-of-type em {
+            display: none;
+        }
+
+        /* SIDE-BY-SIDE LAYOUT */
+        .content-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            margin: 16px 0;
+            align-items: start;
+        }
+
+        @media (max-width: 1200px) {
+            .content-row {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+        }
+
+        .content-text-only {
+            grid-column: 1 / -1;
+            max-width: 800px;
+        }
+
+        /* TYPOGRAPHY */
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--avanamy-purple) 0%, var(--avanamy-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0 0 8px 0;
+            line-height: 1.2;
+            grid-column: 1 / -1;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 24px 0 12px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+            grid-column: 1 / -1;
+        }
+
+        h2:first-of-type {
+            margin-top: 8px;
+        }
+
+        h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 16px 0 8px 0;
+            grid-column: 1 / -1;
+        }
+
+        h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 24px 0 8px 0;
+        }
+
+        h4 + pre {
+            margin-top: 0;
+        }
+
+        p {
+            margin: 0 0 16px 0;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        em {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        h1 + p {
+            margin-bottom: 20px;
+        }
+
+        /* CODE STYLING */
+        code {
+            font-family: "SF Mono", Monaco, "Cascadia Code", monospace;
+            font-size: 13px;
+            padding: 3px 6px;
+            background: rgba(139, 92, 246, 0.08);
+            border-radius: 4px;
+            color: var(--avanamy-purple);
+            font-weight: 500;
+        }
+
+        pre {
+            background: var(--code-bg);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 0 0 20px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 1px solid var(--border);
         }
 
         pre code {
-            background: #f5f5f5;
-            padding: 0.75rem;
-            display: block;
+            background: none;
+            padding: 0;
+            color: var(--code-text);
+            font-size: 13px;
+            line-height: 1.6;
+            font-weight: 400;
+        }
+
+        /* Syntax highlighting */
+        .codehilite { margin: 0; }
+        .codehilite .s { color: #7dd3fc; }
+        .codehilite .k { color: #c084fc; }
+        .codehilite .nb { color: #a78bfa; }
+        .codehilite .nf { color: #22d3ee; }
+        .codehilite .c { color: #64748b; }
+        .codehilite .mi { color: #a78bfa; }
+
+        /* TABLES */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+            background: var(--table-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            grid-column: 1 / -1;
+        }
+
+        thead {
+            background: var(--table-header-bg);
+        }
+
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-bottom: 2px solid var(--border);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        td:first-child {
+            font-weight: 500;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tbody tr:hover {
+            background: var(--table-hover);
+        }
+
+        /* BADGES */
+        .method-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 10px;
+        }
+
+        .method-get { background: #dbeafe; color: #1e40af; }
+        .method-post { background: #d1fae5; color: #065f46; }
+        .method-put { background: #fef3c7; color: #92400e; }
+        .method-patch { background: #fce7f3; color: #9f1239; }
+        .method-delete { background: #fee2e2; color: #991b1b; }
+
+        /* CALLOUTS */
+        .callout {
+            padding: 16px 20px;
+            border-left: 4px solid;
             border-radius: 6px;
-            overflow-x: auto;
+            margin: 20px 0;
+            font-size: 14px;
+            background: var(--callout-info-bg);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            grid-column: 1 / -1;
         }
 
-        h1, h2, h3 {
-            padding-top: 1rem;
+        .callout-info {
+            background: var(--callout-info-bg);
+            border-color: var(--avanamy-cyan);
+            color: var(--callout-info-text);
         }
 
-        /* Simple TOC styling */
-        .toc {
-            border-left: 4px solid #ddd;
-            margin-bottom: 2rem;
-            padding-left: 1rem;
+        .callout-warning {
+            background: var(--callout-warning-bg);
+            border-color: #f59e0b;
+            color: var(--callout-warning-text);
+        }
+
+        .callout p {
+            margin: 0;
+            color: inherit;
+        }
+
+        /* LISTS */
+        ul, ol {
+            margin: 0 0 16px 24px;
+        }
+
+        li {
+            margin: 6px 0;
+            color: var(--text-secondary);
+        }
+
+        /* LINKS */
+        a {
+            color: var(--avanamy-purple);
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+
+        a:hover {
+            color: var(--avanamy-cyan);
+            text-decoration: underline;
+        }
+
+        .docs-nav a {
+            color: var(--text-light);
+        }
+
+        /* PRINT */
+        @media print {
+            .docs-nav, .theme-toggle {
+                display: none;
+            }
+            
+            .docs-wrapper {
+                grid-template-columns: 1fr;
+            }
+
+            .docs-content {
+                background: white;
+            }
+
+            .content-row {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
+    <div class="docs-wrapper">
+        <!-- Left: Navigation -->
+        <nav class="docs-nav">
+            <div class="docs-nav-header">
+                <div class="docs-logo">
+                    <div class="logo-icon">
+                        <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M2 48 L8 48 L12 40 L16 48 L22 12 L28 48 L34 16 L40 40 L44 32 L48 32 L54 32" 
+                                  stroke="url(#pulseGradient)" 
+                                  stroke-width="3" 
+                                  stroke-linecap="round" 
+                                  stroke-linejoin="round" 
+                                  fill="none"/>
+                            <line x1="20" y1="32" x2="36" y2="32" 
+                                  stroke="#00CCFF" 
+                                  stroke-width="3.5" 
+                                  stroke-linecap="round"/>
+                            <circle cx="28" cy="32" r="3.5" fill="#00CCFF"/>
+                            <defs>
+                                <linearGradient id="pulseGradient" x1="2" y1="28" x2="54" y2="28">
+                                    <stop offset="0%" stop-color="#B800E6"/>
+                                    <stop offset="50%" stop-color="#00CCFF"/>
+                                    <stop offset="100%" stop-color="#B800E6"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="docs-title">Avanamy</div>
+                        <div class="docs-subtitle">API Monitoring</div>
+                    </div>
+                </div>
+            </div>
 
-<div class="toc">
-{{ toc }}
-</div>
+            <div class="nav-content">
+                {{ toc|safe }}
+            </div>
 
-<div id="content">
-{{ content }}
-</div>
+            <!-- Theme Toggle at Bottom -->
+            <div class="theme-toggle" onclick="toggleTheme()">
+                <div class="theme-icon">
+                    <svg id="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                    <svg id="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                        <circle cx="12" cy="12" r="5"></circle>
+                        <line x1="12" y1="1" x2="12" y2="3"></line>
+                        <line x1="12" y1="21" x2="12" y2="23"></line>
+                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                        <line x1="1" y1="12" x2="3" y2="12"></line>
+                        <line x1="21" y1="12" x2="23" y2="12"></line>
+                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                </div>
+                <span id="theme-text">Dark Mode</span>
+            </div>
+        </nav>
 
+        <!-- Main: Content -->
+        <main class="docs-content">
+            <div class="provider-product-header">
+                <div class="breadcrumb">{{ provider_name }} › {{ product_name }}</div>
+                <h1 class="main-title">{{ spec_title }}</h1>
+                <div class="version-info">
+                    <span class="version-badge">
+                        <span>📝</span>
+                        <span>{{ version_label }}</span>
+                    </span>
+                    <span class="spec-version">API Version {{ spec_version }}</span>
+                </div>
+            </div>
+            {{ content|safe }}
+        </main>
+    </div>
+
+    <script>
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const moonIcon = document.getElementById('moon-icon');
+            const sunIcon = document.getElementById('sun-icon');
+            const text = document.getElementById('theme-text');
+            
+            if (theme === 'dark') {
+                moonIcon.style.display = 'none';
+                sunIcon.style.display = 'block';
+                text.textContent = 'Light Mode';  // Show opposite of current
+            } else {
+                moonIcon.style.display = 'block';
+                sunIcon.style.display = 'none';
+                text.textContent = 'Dark Mode';  // Show opposite of current
+            }
+        }
+
+        // Load saved theme
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        })();
+
+        // Reorganize content into side-by-side layout
+        (function() {
+            const content = document.querySelector('.docs-content');
+            if (!content) return;
+            
+            const elements = Array.from(content.children);
+            const fragment = document.createDocumentFragment();
+            
+            let i = 0;
+            while (i < elements.length) {
+                const el = elements[i];
+                const tag = el.tagName.toLowerCase();
+                
+                if (el.classList.contains('provider-product-header')) {
+                    fragment.appendChild(el);
+                    i++;
+                    continue;
+                }
+                
+                if (tag.match(/^h[1-2]$/) || tag === 'table') {
+                    fragment.appendChild(el);
+                    i++;
+                    continue;
+                }
+                
+                if (tag.match(/^(h3|h4|p|ul|ol|div)$/) || el.classList.contains('callout')) {
+                    const textElements = [el];
+                    let codeElements = [];
+                    let j = i + 1;
+                    
+                    while (j < elements.length) {
+                        const nextEl = elements[j];
+                        const nextTag = nextEl.tagName.toLowerCase();
+                        
+                        if (nextTag.match(/^h[1-3]$/) || nextTag === 'table') {
+                            break;
+                        }
+                        
+                        if (nextTag === 'pre') {
+                            codeElements.push(nextEl);
+                        } else if (nextTag.match(/^(h4|p|ul|ol|div)$/) || nextEl.classList.contains('callout')) {
+                            textElements.push(nextEl);
+                        }
+                        
+                        j++;
+                    }
+                    
+                    if (textElements.length > 0 || codeElements.length > 0) {
+                        const row = document.createElement('div');
+                        row.className = 'content-row';
+                        
+                        const textDiv = document.createElement('div');
+                        textDiv.className = codeElements.length > 0 ? 'content-text' : 'content-text-only';
+                        textElements.forEach(te => textDiv.appendChild(te));
+                        row.appendChild(textDiv);
+                        
+                        if (codeElements.length > 0) {
+                            const codeDiv = document.createElement('div');
+                            codeDiv.className = 'content-code';
+                            codeElements.forEach(ce => codeDiv.appendChild(ce));
+                            row.appendChild(codeDiv);
+                        }
+                        
+                        fragment.appendChild(row);
+                    }
+                    
+                    i = j;
+                    continue;
+                }
+                
+                fragment.appendChild(el);
+                i++;
+            }
+            
+            content.innerHTML = '';
+            content.appendChild(fragment);
+        })();
+    </script>
 </body>
 </html>
