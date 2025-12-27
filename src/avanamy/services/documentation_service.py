@@ -13,6 +13,7 @@ from avanamy.models.provider import Provider
 from avanamy.services.s3 import upload_bytes
 from avanamy.services.documentation_renderer import render_markdown_to_html
 from avanamy.services.documentation_generator import generate_markdown_from_normalized_spec
+from avanamy.services.ai_documentation_enhancer import AIDocumentationEnhancer
 from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.api_product import ApiProduct
@@ -115,9 +116,19 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         version_history_id = version_history.id
 
         # --------------------------------------------------------------------
-        # 1. Markdown
+        # 1. Markdown (with AI enhancement)
         # --------------------------------------------------------------------
-        markdown = generate_markdown_from_normalized_spec(schema)
+        basic_markdown = generate_markdown_from_normalized_spec(schema)
+        
+        # Enhance with AI if available
+        enhancer = AIDocumentationEnhancer()
+        if enhancer.is_enabled():
+            logger.info("Enhancing documentation with AI for spec %s", spec.id)
+            import asyncio
+            markdown = asyncio.run(enhancer.enhance_markdown(basic_markdown, schema))
+        else:
+            logger.info("AI enhancement disabled, using basic markdown")
+            markdown = basic_markdown
 
         provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
         provider_slug = provider.slug
@@ -140,7 +151,17 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         # --------------------------------------------------------------------
         # 2. HTML
         # --------------------------------------------------------------------
-        html = render_markdown_to_html(markdown, title=f"{spec.name} API Docs")
+
+        spec_version = schema.get("info", {}).get("version", "1.0.0")
+
+        html = render_markdown_to_html(
+            markdown, 
+            title=spec.name,
+            provider_name=provider.name,
+            product_name=product.name,
+            version_label=version_label,
+            spec_version=spec_version,
+        )
 
         html_key = build_docs_html_path(
             tenant_slug=tenant.slug,

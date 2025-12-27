@@ -157,3 +157,165 @@ def get_docs_html(
         return HTMLResponse(
             content=download_bytes(artifact.s3_path).decode("utf-8")
         )
+
+@router.get("/{spec_id}/versions/{version_id}")
+async def get_version_documentation(
+    spec_id: UUID,
+    version_id: int,
+    format: str = "html",  # "html" or "markdown"
+    db: Session = Depends(get_db),
+):
+    """
+    Get documentation for a specific version.
+    
+    This allows viewing historical docs for any version, not just the latest.
+    """
+    logger.info(f"Fetching {format} docs for spec {spec_id}, version {version_id}")
+    
+    with tracer.start_as_current_span("docs.get_version_documentation") as span:
+        span.set_attribute("spec.id", str(spec_id))
+        span.set_attribute("version.id", version_id)
+        span.set_attribute("format", format)
+
+        spec = db.query(ApiSpec).filter(ApiSpec.id == spec_id).first()
+
+        if not spec:
+            raise HTTPException(404, "API spec not found")
+        
+        # Get version history
+        from avanamy.models.version_history import VersionHistory
+        version = db.query(VersionHistory).filter(
+            VersionHistory.api_spec_id == spec_id,
+            VersionHistory.version == version_id
+        ).first()
+        
+        if not version:
+            raise HTTPException(404, f"Version {version_id} not found")
+        
+        # Get documentation artifact
+        from avanamy.models.documentation_artifact import DocumentationArtifact
+        artifact_type = "api_markdown" if format == "markdown" else "api_html"
+        
+        artifact = db.query(DocumentationArtifact).filter(
+            DocumentationArtifact.version_history_id == version.id,
+            DocumentationArtifact.artifact_type == artifact_type
+        ).first()
+        
+        if not artifact:
+            raise HTTPException(
+                404,
+                f"No {format} documentation found for version {version_id}"
+            )
+        
+        # Fetch from S3
+        content_bytes = download_bytes(artifact.s3_path)
+        content = content_bytes.decode('utf-8')
+        
+        # Track metrics
+        if format == "html":
+            html_requests.inc()
+        else:
+            markdown_requests.inc()
+        
+         # Return raw HTML/Markdown for browser viewing
+        logger.info(f"Returning {format} documentation, length: {len(content)} bytes")
+        
+        if format == "html":
+            return HTMLResponse(content=content)
+        else:
+            return PlainTextResponse(content=content)
+
+
+@router.get("/{spec_id}/versions/{version_id}/available")
+async def get_available_documentation_formats(
+    spec_id: UUID,
+    version_id: int,
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """Check which documentation formats are available for a version."""
+    
+    logger.info(f"Checking available docs for spec {spec_id}, version {version_id}")
+    
+    # ADD THIS: Validate tenant ownership
+    spec = db.query(ApiSpec).filter(
+        ApiSpec.id == spec_id,
+        ApiSpec.tenant_id == tenant_id
+    ).first()
+    
+    if not spec:
+        raise HTTPException(404, "API spec not found")
+    
+    # Rest of the code stays the same...
+    from avanamy.models.version_history import VersionHistory
+    version = db.query(VersionHistory).filter(
+        VersionHistory.api_spec_id == spec_id,
+        VersionHistory.version == version_id
+    ).first()
+    
+    if not version:
+        raise HTTPException(404, f"Version {version_id} not found")
+    
+    # Get all doc artifacts for this version
+    from avanamy.models.documentation_artifact import DocumentationArtifact
+    artifacts = db.query(DocumentationArtifact).filter(
+        DocumentationArtifact.version_history_id == version.id,
+        DocumentationArtifact.artifact_type.in_(['api_markdown', 'api_html'])
+    ).all()
+    
+    available = {
+        "markdown": False,
+        "html": False
+    }
+    
+    for artifact in artifacts:
+        if artifact.artifact_type == "api_markdown":
+            available["markdown"] = True
+        elif artifact.artifact_type == "api_html":
+            available["html"] = True
+    
+    return {
+        "spec_id": str(spec_id),
+        "version": version_id,
+        "available_formats": available,
+        "total_artifacts": len(artifacts)
+    }
+
+@router.get("/{spec_id}/latest")
+async def get_latest_documentation(
+    spec_id: UUID,
+    format: str = "html",
+    tenant_id: str = Depends(get_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Get documentation for the latest version of a spec.
+    
+    Convenience endpoint so frontend doesn't need to find latest version first.
+    """
+    # Validate tenant ownership
+    spec = db.query(ApiSpec).filter(
+        ApiSpec.id == spec_id,
+        ApiSpec.tenant_id == tenant_id
+    ).first()
+    
+    if not spec:
+        raise HTTPException(404, "API spec not found")
+    
+    # Get latest version
+    from avanamy.models.version_history import VersionHistory
+    latest_version = db.query(VersionHistory).filter(
+        VersionHistory.api_spec_id == spec_id
+    ).order_by(VersionHistory.version.desc()).first()
+    
+    if not latest_version:
+        raise HTTPException(404, "No versions found for this spec")
+    
+    # Call the version-specific endpoint
+    return await get_version_documentation(
+        spec_id=spec_id,
+        version_id=latest_version.version,
+        format=format,
+        tenant_id=tenant_id,
+        db=db
+    )
