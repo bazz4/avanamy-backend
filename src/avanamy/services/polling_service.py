@@ -21,6 +21,8 @@ from avanamy.services.api_spec_service import update_api_spec_file
 from avanamy.services.alert_service import AlertService
 from avanamy.services.endpoint_health_service import EndpointHealthService
 from avanamy.services.api_spec_parser import parse_api_spec
+from avanamy.services.email_service import EmailService
+from avanamy.models.alert_configuration import AlertConfiguration
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -31,7 +33,8 @@ class PollingService:
 
     def __init__(self, db: Session):
         self.db = db
-
+        self.email_service = EmailService()
+        
     async def poll_watched_api(self, watched_api_id: UUID) -> dict:
         """
         Poll a single watched API for changes.
@@ -172,18 +175,15 @@ class PollingService:
         filename = self._extract_filename(watched_api.spec_url)
         
         # Call existing service to handle the upload
-        # This returns the ApiSpec object
+        # Note: update_api_spec_file expects spec_id, not provider/product IDs
         api_spec = update_api_spec_file(
             db=self.db,
-            tenant_id=watched_api.tenant_id,
-            provider_id=watched_api.provider_id,
-            api_product_id=watched_api.api_product_id,
+            spec_id=watched_api.api_spec_id,  # ← Use spec_id instead
             filename=filename,
             raw_content=spec_content.encode(),
             changelog=f"Auto-detected change from {watched_api.spec_url}"
         )
         
-        # The version number is stored in version_history
         # Get the latest version for this spec
         from avanamy.models.version_history import VersionHistory
         
@@ -225,6 +225,37 @@ class PollingService:
         else:
             watched_api.consecutive_failures += 1
             watched_api.last_error = error
+            
+            # Send alert on 3rd consecutive failure
+            if watched_api.consecutive_failures == 3:
+                logger.warning(
+                    f"WatchedAPI {watched_api.id} has failed 3 times, sending alerts"
+                )
+                
+                # Get alert configurations
+                alert_configs = (
+                    self.db.query(AlertConfiguration)
+                    .filter(
+                        AlertConfiguration.watched_api_id == watched_api.id,
+                        AlertConfiguration.enabled == True,
+                        AlertConfiguration.alert_on_endpoint_failures == True
+                    )
+                    .all()
+                )
+                
+                # Send alert for each configuration
+                for config in alert_configs:
+                    self.email_service.send_endpoint_down_alert(
+                        db=self.db,
+                        alert_config=config,
+                        watched_api=watched_api,
+                        endpoint_path=watched_api.spec_url,  # Use the spec URL as "endpoint"
+                        http_method="GET",
+                        status_code=401 if "401" in error else 500,
+                        error_message=error
+                    )
+                
+                logger.info(f"Sent {len(alert_configs)} poll failure alerts")
             
             # After 5 consecutive failures, mark as failed
             if watched_api.consecutive_failures >= 5:
@@ -271,25 +302,60 @@ class PollingService:
             
             diff = version_history.diff
             
-            # Check if breaking changes exist
-            is_breaking = diff.get('breaking', False)
+            # Check for breaking changes
+            breaking_changes = diff.get('breaking_changes', [])
+            is_breaking = len(breaking_changes) > 0
             
-            if not is_breaking:
-                logger.info(f"No breaking changes in version {version_number}")
-                return
+            if is_breaking:
+                logger.info(
+                    f"Breaking changes detected in version {version_number}, sending alerts"
+                )
+                
+                # Get alert configurations
+                alert_configs = (
+                    self.db.query(AlertConfiguration)
+                    .filter(
+                        AlertConfiguration.watched_api_id == watched_api.id,
+                        AlertConfiguration.enabled == True,
+                        AlertConfiguration.alert_on_breaking_changes == True
+                    )
+                    .all()
+                )
+                
+                # Send alert for each configuration
+                for config in alert_configs:
+                    self.email_service.send_breaking_change_alert(
+                        db=self.db,
+                        alert_config=config,
+                        watched_api=watched_api,
+                        version=version_history,
+                        breaking_changes_count=len(breaking_changes)
+                    )
+                
+                logger.info(f"Sent {len(alert_configs)} breaking change alerts")
             
-            logger.info(
-                f"Breaking changes detected in version {version_number}, sending alerts"
-            )
-            
-            # Send alerts
-            alert_service = AlertService(self.db)
-            await alert_service.send_breaking_change_alert(
-                watched_api=watched_api,
-                version_history=version_history,
-                diff=diff,
-                summary=version_history.summary
-            )
+            # Also check for non-breaking changes (optional)
+            elif diff:
+                # Get configs that want non-breaking alerts
+                alert_configs = (
+                    self.db.query(AlertConfiguration)
+                    .filter(
+                        AlertConfiguration.watched_api_id == watched_api.id,
+                        AlertConfiguration.enabled == True,
+                        AlertConfiguration.alert_on_non_breaking_changes == True
+                    )
+                    .all()
+                )
+                
+                for config in alert_configs:
+                    self.email_service.send_non_breaking_change_alert(
+                        db=self.db,
+                        alert_config=config,
+                        watched_api=watched_api,
+                        version=version_history
+                    )
+                
+                logger.info(f"Sent {len(alert_configs)} non-breaking change alerts")
             
         except Exception as e:
             logger.error(f"Error checking/alerting breaking changes: {e}", exc_info=True)
