@@ -41,8 +41,8 @@ def test_store_original_spec_artifact_creates_artifact_with_correct_type(monkeyp
     # Verify the call arguments
     kwargs = create_mock.call_args.kwargs
     assert kwargs["db"] == db
-    assert kwargs["tenant_id"] == str(tenant_id)
-    assert kwargs["api_spec_id"] == str(api_spec_id)
+    assert kwargs["tenant_id"] == tenant_id
+    assert kwargs["api_spec_id"] == api_spec_id
     assert kwargs["artifact_type"] == "original_spec"
     assert kwargs["s3_path"] == s3_path
     assert kwargs["version_history_id"] == version_history_id
@@ -139,8 +139,8 @@ def test_store_original_spec_artifact_handles_error_gracefully(monkeypatch):
     assert "Database error" in str(exc_info.value)
 
 
-def test_store_original_spec_artifact_converts_uuids_to_strings(monkeypatch):
-    """Test that UUID parameters are correctly converted to strings for the repository."""
+def test_store_original_spec_artifact_passes_uuids_as_is(monkeypatch):
+    """Test that UUID parameters are passed as UUID objects to the repository."""
     tenant_id = uuid.uuid4()
     api_spec_id = uuid.uuid4()
     version_history_id = 3
@@ -166,8 +166,8 @@ def test_store_original_spec_artifact_converts_uuids_to_strings(monkeypatch):
     )
 
     kwargs = create_mock.call_args.kwargs
-    # Verify UUIDs are converted to strings
-    assert isinstance(kwargs["tenant_id"], str)
-    assert isinstance(kwargs["api_spec_id"], str)
-    assert kwargs["tenant_id"] == str(tenant_id)
-    assert kwargs["api_spec_id"] == str(api_spec_id)
+    # Verify UUIDs are passed as UUID objects (not converted to strings)
+    assert isinstance(kwargs["tenant_id"], uuid.UUID)
+    assert isinstance(kwargs["api_spec_id"], uuid.UUID)
+    assert kwargs["tenant_id"] == tenant_id
+    assert kwargs["api_spec_id"] == api_spec_id

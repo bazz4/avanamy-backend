@@ -125,7 +125,9 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         if enhancer.is_enabled():
             logger.info("Enhancing documentation with AI for spec %s", spec.id)
             import asyncio
-            markdown = asyncio.run(enhancer.enhance_markdown(basic_markdown, schema))
+            # Extract the spec's title from the OpenAPI schema
+            spec_title = schema.get("info", {}).get("title", spec.name)
+            markdown = asyncio.run(enhancer.enhance_markdown(basic_markdown, schema, api_title=spec_title))
         else:
             logger.info("AI enhancement disabled, using basic markdown")
             markdown = basic_markdown

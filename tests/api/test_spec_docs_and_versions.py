@@ -320,7 +320,8 @@ def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
     fake_db = MagicMock()
 
     fake_spec = SimpleNamespace(id=spec_id)
-    fake_version = SimpleNamespace(id=789, version=version_number)
+    from datetime import datetime
+    fake_version = SimpleNamespace(id=789, version=version_number, created_at=datetime.utcnow())
 
     query_index = {"count": 0}
 
@@ -352,7 +353,10 @@ def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
             db=fake_db,
         )
     assert exc.value.status_code == 404
-    assert "Original spec artifact not found" in exc.value.detail
+    # The detail is now a dict with detailed error information
+    assert isinstance(exc.value.detail, dict)
+    assert exc.value.detail["error"] == "Original spec artifact not found for this version"
+    assert exc.value.detail["version"] == version_number
 
 
 def test_compare_two_versions_success(monkeypatch):
