@@ -152,7 +152,6 @@
             color: var(--text-light);
             font-size: 12px;
         }
-
         .nav-content {
             flex: 1;
             overflow-y: auto;
@@ -160,18 +159,52 @@
 
         .docs-nav ul {
             list-style: none;
+            padding-left: 0;
+            margin: 0;
+        }
+
+        .docs-nav li {
+            margin: 2px 0;
         }
 
         .docs-nav a {
             display: block;
-            padding: 6px 24px;
+            padding: 6px 16px;
             color: var(--text-light);
             text-decoration: none;
             font-size: 14px;
             transition: all 0.15s;
             border-left: 2px solid transparent;
+            font-weight: 400;
         }
 
+        .docs-nav a:hover {
+            color: var(--text-primary);
+            background: rgba(139, 92, 246, 0.05);
+            border-left-color: var(--avanamy-purple);
+        }
+
+        /* Top level items (Getting Started, Authentication, etc.) - BOLD */
+        .toc > ul > ul > li > a {
+            font-weight: 600 !important;
+            padding-left: 16px;
+        }
+
+        /* Second level (Try It, Examples, etc.) */
+        .toc > ul > ul > li > ul > li > a {
+            padding-left: 28px;
+            font-weight: 400 !important;
+        }
+
+        /* Third level */
+        .toc > ul > ul > li > ul > li > ul > li > a {
+            padding-left: 40px;
+        }
+
+        /* Fourth level */
+        .toc > ul > ul > li > ul > li > ul > li > ul > li > a {
+            padding-left: 52px;
+        }
         .docs-nav a:hover {
             color: var(--text-primary);
             background: rgba(139, 92, 246, 0.05);
@@ -274,12 +307,6 @@
             font-weight: 500;
         }
 
-        /* Hide redundant version from markdown */
-        .docs-content > h1:first-of-type,
-        .docs-content > p:first-of-type em {
-            display: none;
-        }
-
         /* SIDE-BY-SIDE LAYOUT */
         .content-row {
             display: grid;
@@ -301,7 +328,6 @@
             max-width: 800px;
         }
 
-        /* TYPOGRAPHY */
         h1 {
             font-size: 32px;
             font-weight: 700;
@@ -312,6 +338,25 @@
             margin: 0 0 8px 0;
             line-height: 1.2;
             grid-column: 1 / -1;
+        }
+
+        /* First H1 from markdown (spec's title) - make it less prominent */
+        .provider-product-header ~ h1:first-of-type {
+            font-size: 18px;
+            font-weight: 600;
+            background: none;
+            background-clip: unset;
+            -webkit-background-clip: unset;
+            -webkit-text-fill-color: unset;
+            color: var(--text-secondary);
+            margin: 24px 0 4px 0;
+            font-style: italic;
+        }
+
+        /* Version text right after spec title */
+        .provider-product-header ~ h1:first-of-type + p em {
+            font-size: 14px;
+            color: var(--text-light);
         }
 
         h2 {

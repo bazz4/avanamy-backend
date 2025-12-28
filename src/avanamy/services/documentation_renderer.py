@@ -5,6 +5,7 @@ from markdown import Markdown
 from jinja2 import Template
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -53,6 +54,8 @@ def render_markdown_to_html(
         html_content = md.convert(markdown_text)
 
         toc_html = md.toc or "<p><em>No table of contents available</em></p>"
+
+        toc_html = re.sub(r'<ul>\s*<li><a href="#[^"]*">[^<]*</a>', '<ul>', toc_html, count=1)
 
         # Load template
         template_str = TEMPLATE_PATH.read_text(encoding="utf-8")

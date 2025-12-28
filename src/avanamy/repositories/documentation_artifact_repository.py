@@ -15,8 +15,8 @@ class DocumentationArtifactRepository:
         self,
         db: Session,
         *,
-        tenant_id: str,
-        api_spec_id: str,
+        tenant_id,
+        api_spec_id,
         artifact_type: str,
         s3_path: str,
         version_history_id: int = None,
@@ -47,8 +47,8 @@ class DocumentationArtifactRepository:
     def get_latest(
         db: Session,
         *,
-        api_spec_id: str,
-        tenant_id: str,
+        api_spec_id,
+        tenant_id,
         artifact_type: str,
     ) -> DocumentationArtifact | None:
 

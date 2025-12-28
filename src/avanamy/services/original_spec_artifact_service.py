@@ -52,8 +52,8 @@ def store_original_spec_artifact(
         
         repo.create(
             db=db,
-            tenant_id=str(tenant_id),
-            api_spec_id=str(api_spec_id),
+            tenant_id=tenant_id,
+            api_spec_id=api_spec_id,
             artifact_type="original_spec",
             s3_path=s3_path,
             version_history_id=version_history_id,

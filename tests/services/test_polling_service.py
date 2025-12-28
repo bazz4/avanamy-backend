@@ -419,7 +419,8 @@ class TestPollingServiceCreateNewVersion:
             api_product_id="product-id",
             tenant_id="tenant-id",
             provider_id="provider-id",
-            spec_url="https://example.com/spec.yaml"
+            spec_url="https://example.com/spec.yaml",
+            api_spec_id="spec-id"
         )
 
         existing_spec = SimpleNamespace(

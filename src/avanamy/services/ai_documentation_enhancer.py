@@ -41,7 +41,8 @@ class AIDocumentationEnhancer:
     async def enhance_markdown(
         self,
         basic_markdown: str,
-        spec: Dict[str, Any]
+        spec: Dict[str, Any],
+        api_title: str = None
     ) -> str:
         """
         Enhance basic markdown documentation with AI-generated content.
@@ -49,6 +50,7 @@ class AIDocumentationEnhancer:
         Args:
             basic_markdown: The basic generated markdown
             spec: The normalized OpenAPI spec
+            api_title: Optional override for API title (defaults to spec's info.title)
             
         Returns:
             Enhanced markdown with AI additions
@@ -60,18 +62,21 @@ class AIDocumentationEnhancer:
         with tracer.start_as_current_span("ai.enhance_markdown") as span:
             try:
                 # Extract key info from spec
-                api_name = spec.get("info", {}).get("title", "API")
+                if not api_title:
+                    api_title = spec.get("info", {}).get("title", "API")
+                
                 endpoints_count = len(spec.get("paths", {}))
                 
-                span.set_attribute("api.name", api_name)
+                span.set_attribute("api.name", api_title)
                 span.set_attribute("endpoints.count", endpoints_count)
                 
-                logger.info(f"Enhancing docs for {api_name} with {endpoints_count} endpoints")
+                logger.info(f"Enhancing docs for {api_title} with {endpoints_count} endpoints")
                 
                 # Call Claude to enhance
                 enhanced = await self._call_claude_for_enhancement(
                     basic_markdown,
-                    spec
+                    spec,
+                    api_title  # Pass the title through
                 )
                 
                 span.set_attribute("enhancement.success", True)
@@ -86,7 +91,8 @@ class AIDocumentationEnhancer:
     async def _call_claude_for_enhancement(
         self,
         basic_markdown: str,
-        spec: Dict[str, Any]
+        spec: Dict[str, Any],
+        api_title: str
     ) -> str:
         """
         Call Claude API to enhance the documentation.
@@ -96,7 +102,7 @@ class AIDocumentationEnhancer:
         """
         
         # Build the enhancement prompt
-        prompt = self._build_enhancement_prompt(basic_markdown, spec)
+        prompt = self._build_enhancement_prompt(basic_markdown, spec, api_title)
         
         # Call Claude
         message = self.client.messages.create(
@@ -118,49 +124,49 @@ class AIDocumentationEnhancer:
     def _build_enhancement_prompt(
         self,
         basic_markdown: str,
-        spec: Dict[str, Any]
+        spec: Dict[str, Any],
+        api_title: str
     ) -> str:
         """Build the prompt for Claude to enhance docs."""
         
-        api_name = spec.get("info", {}).get("title", "API")
-        
         return f"""You are a technical writer enhancing API documentation.
 
-Given this basic API documentation, enhance it to be more helpful for developers.
+    Given this basic API documentation, enhance it to be more helpful for developers.
 
-API Name: {api_name}
+    API Name: {api_title}
 
-Original Documentation:
-{basic_markdown}
+    Original Documentation:
+    {basic_markdown}
 
-OpenAPI Spec (for context):
-{json.dumps(spec, indent=2)[:3000]}  # First 3000 chars for context
+    OpenAPI Spec (for context):
+    {json.dumps(spec, indent=2)[:3000]}  # First 3000 chars for context
 
-Please enhance this documentation by:
+    Please enhance this documentation by:
 
-1. **Keep the existing structure** - Don't remove any sections
-2. **Add a "Getting Started" section** at the top with:
-   - Quick example of making your first API call
-   - How to authenticate (based on spec)
-   - Common workflow example
-3. **For each endpoint**, add a subsection AFTER the examples called "💡 Important Notes" that includes:
-   - 1-2 critical warnings if applicable (idempotency, rate limits, etc.)
-   - Common use case (one sentence)
-   - ONLY if truly important - don't add fluff
-4. **Add an "Error Handling" section** at the end with:
-   - Brief explanation of status codes (200, 400, 401, 429, 500)
-   - How to handle rate limits
-   - Retry best practices
+    1. **Start with an H1 title** using "{api_title}" exactly as written
+    2. **Add a "Getting Started" section** at the H2 level with:
+    - Brief welcome message explaining what this API does
+    - Quick example of making your first API call
+    - How to authenticate (based on spec's security schemes)
+    - Common workflow example (2-3 steps)
+    3. **For each endpoint**, add a subsection AFTER the examples called "💡 Important Notes" that includes:
+    - 1-2 critical warnings if applicable (idempotency, rate limits, validation rules, etc.)
+    - Common use case (one sentence)
+    - ONLY add notes if truly important - skip if endpoint is straightforward
+    4. **Add an "Error Handling" section** at the H2 level at the end with:
+    - Brief explanation of HTTP status codes (200, 400, 401, 429, 500)
+    - How to handle rate limits (if applicable)
+    - Retry best practices
+    5. **Improve section names**: If you see a section named "General", rename it to something more descriptive based on the endpoints it contains (e.g., "User Management", "Core Endpoints", "API Operations")
 
-Rules:
-- Be concise - add value, not length
-- Use realistic examples with actual-looking data
-- Don't repeat generic best practices on every endpoint
-- If an endpoint is straightforward, don't add notes
-- Keep it developer-friendly and practical
-- Return ONLY the enhanced markdown, no preamble
+    Rules:
+    - Be concise - add value, not length
+    - Use realistic examples with actual-looking data (emails, phone numbers, IDs, dates)
+    - Don't repeat generic best practices on every endpoint
+    - Keep it developer-friendly and practical
+    - Return ONLY the enhanced markdown, no preamble or explanation
 
-Enhanced Documentation:"""
+    Enhanced Documentation:"""
     
     def is_enabled(self) -> bool:
         """Check if AI enhancement is available."""
