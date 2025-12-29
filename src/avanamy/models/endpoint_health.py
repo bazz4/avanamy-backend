@@ -4,14 +4,11 @@ EndpointHealth model for tracking endpoint availability and performance.
 Records health check results for each endpoint in a watched API.
 """
 
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Integer, Boolean, DateTime
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import uuid
-
 from avanamy.db.database import Base
-
+from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created
 
 class EndpointHealth(Base):
     """
@@ -21,37 +18,19 @@ class EndpointHealth(Base):
     """
     __tablename__ = "endpoint_health"
 
-    # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = uuid_pk()
+    watched_api_id = uuid_fk("watched_apis", nullable=False)
 
-    # Relationships
-    watched_api_id = Column(UUID(as_uuid=True), ForeignKey("watched_apis.id"), nullable=False)
-
-    # Endpoint identification
     endpoint_path = Column(String, nullable=False)
-    """The endpoint path, e.g., /v1/users"""
-    
     http_method = Column(String, nullable=False)
-    """HTTP method: GET, POST, PUT, DELETE, etc."""
 
-    # Health check results
     status_code = Column(Integer, nullable=True)
-    """HTTP status code returned (200, 404, 500, etc.)"""
-    
     response_time_ms = Column(Integer, nullable=True)
-    """Response time in milliseconds"""
-    
     is_healthy = Column(Boolean, nullable=False)
-    """True if endpoint is responding correctly (2xx or 3xx status)"""
-    
     error_message = Column(String, nullable=True)
-    """Error message if request failed"""
 
-    # Timestamp
     checked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    """When this health check was performed"""
 
-    # Relationships
     watched_api = relationship("WatchedAPI", back_populates="endpoint_health_checks")
 
     def __repr__(self):

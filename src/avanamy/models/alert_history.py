@@ -4,14 +4,11 @@ AlertHistory model for tracking sent alerts.
 Records every alert attempt with status and error details.
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID, JSON
-from sqlalchemy.sql import func
+from sqlalchemy import Column, ForeignKey, String, Integer, DateTime, Text
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
-import uuid
-
 from avanamy.db.database import Base
-
+from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created
 
 class AlertHistory(Base):
     """
@@ -21,48 +18,24 @@ class AlertHistory(Base):
     """
     __tablename__ = "alert_history"
 
-    # Primary key
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    # Relationships
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
-    watched_api_id = Column(UUID(as_uuid=True), ForeignKey("watched_apis.id"), nullable=False)
-    alert_config_id = Column(UUID(as_uuid=True), ForeignKey("alert_configurations.id"), nullable=False)
-    
-    # Optional: Link to specific version if alert is about a change
+    id = uuid_pk()
+    tenant_id = uuid_fk("tenants", nullable=False)
+    watched_api_id = uuid_fk("watched_apis", nullable=False)
+    alert_config_id = uuid_fk("alert_configurations", nullable=False)
     version_history_id = Column(Integer, ForeignKey("version_history.id"), nullable=True)
 
-    # Alert details
     alert_reason = Column(String, nullable=False)
-    """Reason: 'breaking_change', 'non_breaking_change', 'endpoint_down', 'endpoint_recovered'"""
-    
     severity = Column(String, nullable=False)
-    """Severity: 'info', 'warning', 'critical'"""
-    
     endpoint_path = Column(String, nullable=True)
-    """If related to specific endpoint health, the endpoint path"""
-    
     http_method = Column(String, nullable=True)
-    """If related to endpoint: GET, POST, etc."""
 
-    # Alert payload (for debugging/audit)
     payload = Column(JSON, nullable=True)
-    """The actual alert content that was sent"""
-
-    # Status tracking
     status = Column(String, nullable=False, default="pending")
-    """Status: 'pending', 'sent', 'failed'"""
-    
     error_message = Column(Text, nullable=True)
-    """If status='failed', the error message"""
     
     sent_at = Column(DateTime(timezone=True), nullable=True)
-    """When the alert was successfully sent"""
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    """When the alert was created/queued"""
+    created_at = timestamp_created()
 
-    # Relationships
     tenant = relationship("Tenant")
     watched_api = relationship("WatchedAPI")
     alert_config = relationship("AlertConfiguration")
