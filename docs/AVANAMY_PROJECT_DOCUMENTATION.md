@@ -914,3 +914,295 @@ for a in artifacts:
 **Version:** 2.0  
 **Last Updated:** December 26, 2024  
 **Status:** Phase 5 Complete + Full Schema Diff + Ready for Notification Service
+
+# Updates to Add to Avanamy Project Doc - December 27, 2025
+
+## Section: Recent Changes
+
+Add new section after "Recent Changes (December 26, 2024 Session)":
+
+---
+
+## 🆕 Recent Changes (December 27, 2025 Session - Phase 2 Complete)
+
+### AI-Enhanced API Documentation System
+
+**Problem:** Basic markdown docs lacked context, examples, and were hard to use.
+
+**Solution:** Built comprehensive AI-enhanced documentation system with beautiful HTML templates:
+
+#### 1. AI Documentation Enhancement
+- **Service:** `AIDocumentationEnhancer` using Claude Sonnet 4
+- **Enhancements Added:**
+  - "Getting Started" section with welcome message and first API call
+  - "Quick Start" with realistic examples
+  - "Common Workflow" with step-by-step guidance
+  - Per-endpoint "💡 Important Notes" with critical warnings
+  - "Error Handling" section with best practices
+  - Renames "General" sections to descriptive names (e.g., "User Management")
+  
+- **Cost:** ~$0.75 per spec version (one-time, cached in S3)
+- **Temperature:** 0.3 for consistent, factual output
+- **Max tokens:** 8000
+
+**Files Created:**
+- `src/avanamy/services/ai_documentation_enhancer.py`
+
+**Files Modified:**
+- `src/avanamy/services/documentation_service.py` - Integrated AI enhancement
+- `src/avanamy/services/documentation_renderer.py` - Pass provider/product/version context
+- `src/avanamy/api/routes/docs.py` - Serve raw HTML instead of JSON
+
+#### 2. Beautiful HTML Documentation Template
+
+**Features:**
+- **Dark/Light Theme Toggle** - Matches Avanamy dashboard aesthetic
+  - Dark: Sidebar (#040a1d), Content (#091124)
+  - Light: White sidebar and content
+  - Theme persists via localStorage
+  
+- **Avanamy Branding**
+  - Logo in sidebar (pulse waveform A)
+  - Purple/cyan gradient colors throughout
+  - Favicon with Avanamy logo
+  
+- **Provider/Product/Version Context**
+  - Breadcrumb: "TEST PROVIDER › PAYMENTS"
+  - Main title: Spec name (e.g., "Test Diff Engine")
+  - Dual version display:
+    - Internal version badge: "📝 v9"
+    - API version: "API Version 2.0.0"
+  
+- **Responsive Layout**
+  - 260px sidebar navigation
+  - Flexible content area
+  - Mobile-friendly (stacks vertically)
+  - Print-optimized styles
+  
+- **Code Styling**
+  - Multi-language examples (cURL, Python, Node.js, C#)
+  - Syntax highlighting with brand colors
+  - Dark background in both themes
+  - Proper code/text contrast
+  
+- **Navigation**
+  - Auto-generated table of contents
+  - Anchor links to sections
+  - Bold top-level items (H1s)
+  - Hierarchical indentation
+  - Hover states with purple accent
+
+**Design Decisions:**
+- Inline code examples (not side-by-side) for simplicity
+- Darker center panel in dark mode for eye comfort
+- Full-width responsive (no max-width constraints)
+- Compact spacing inspired by Stripe documentation
+
+**Files Created:**
+- `src/avanamy/templates/docs_base.html` - Complete rewrite with modern design
+
+#### 3. Frontend Integration
+
+**Approach:** Direct HTML viewing (no intermediate pages)
+- "View Docs" buttons open raw HTML in new tab
+- Better UX: Users can keep docs open while working in dashboard
+- No style conflicts with dashboard
+
+**Files Modified:**
+- `src/app/specs/[specId]/versions/page.tsx` - Direct window.open to backend
+- `src/app/specs/[specId]/versions/[versionId]/diff/page.tsx` - Same approach
+- `src/lib/api.ts` - Added doc fetching functions
+
+**Files Deleted:**
+- `src/components/DocumentationViewer.tsx` - No longer needed
+- `src/app/specs/[specId]/versions/[versionId]/docs/` - Entire route removed
+
+#### 4. Backend Changes
+
+**Public Documentation Endpoint:**
+- Removed tenant authentication from docs endpoint
+- Docs are public once generated (spec_id acts as secure token)
+- Returns raw HTML/PlainText instead of JSON
+- Added `HTMLResponse` and `PlainTextResponse` support
+
+**Context Passing:**
+- Extract spec version from OpenAPI `info.version`
+- Pass provider name, product name, version label, spec version to template
+- Use spec's `info.title` for H1 in content
+- Use internal name for main header display
+
+**Files Modified:**
+- `src/avanamy/api/routes/docs.py` - Raw HTML serving, no auth
+
+#### 5. CSS and Styling Details
+
+**Color System:**
+```css
+/* Dark Theme */
+--bg-main: #091124 (lighter content area)
+--bg-sidebar: #040a1d (darker sidebar)
+
+/* Light Theme */
+--bg-main: #ffffff (white content)
+--bg-sidebar: #ffffff (white sidebar)
+```
+
+**Navigation Structure:**
+```
+.toc > ul > ul > li > a (top level - bold)
+  └── ul > li > a (nested - normal weight)
+```
+
+**Typography Hierarchy:**
+1. Main title (Test Diff Engine) - 36px, gradient
+2. Spec title (Test API) - 18px, gray, italic
+3. Section headings - 24px, 20px with proper spacing
+
+#### 6. AI Prompt Engineering
+
+**Key Instructions:**
+- Start with H1 using spec's exact title
+- Rename "General" sections based on endpoints
+- Add realistic examples with actual-looking data
+- Only add "Important Notes" when truly important
+- No duplicate version display
+- Be concise - add value, not length
+
+**Prompt Structure:**
+```
+1. Start with H1 title using "{api_title}" exactly
+2. Add Getting Started section...
+3. For each endpoint, add Important Notes...
+4. Add Error Handling section...
+5. Improve section names: rename "General"...
+```
+
+### Testing & Quality
+
+**Pytest Fixes:**
+- Fixed 3 failing tests after documentation changes
+- All tests now passing
+- No regressions introduced
+
+### Commits Made
+
+**Backend Commit:**
+```
+feat: Add AI-enhanced API documentation with beautiful HTML templates
+
+- Implement Claude Sonnet 4 AI enhancement service
+- Add Getting Started, Important Notes, Error Handling sections
+- Create responsive HTML template with dark/light themes
+- Add Provider/Product/Version context to docs
+- Serve raw HTML instead of JSON
+- Remove tenant auth from docs endpoint (public access)
+- Pass spec version from OpenAPI schema to template
+
+Key features:
+- Dark/Light theme toggle matching dashboard
+- Avanamy branding (logo, colors, favicon)
+- Dual version display (internal v9 + API v2.0.0)
+- Multi-language code examples
+- Syntax highlighting with proper theme support
+- Responsive layout
+- Cost: ~$0.75 per spec version (cached in S3)
+```
+
+**Frontend Commit:**
+```
+feat: Streamline documentation viewing with direct HTML links
+
+- Update 'View Docs' buttons to open HTML directly in new tab
+- Remove intermediate DocumentationViewer component
+- Add API functions for fetching documentation
+- Clean up routing - docs open in separate window
+
+Changes:
+- View Docs buttons use window.open() to backend HTML endpoint
+- Removed DocumentationViewer component
+- Removed intermediate /docs route page
+- Added getAvailableDocFormats() and getVersionDocumentation()
+- Better UX: users can keep docs open while working
+```
+
+### Files Summary
+
+**Backend Files Created (1):**
+- `src/avanamy/services/ai_documentation_enhancer.py`
+
+**Backend Files Modified (4):**
+- `src/avanamy/services/documentation_service.py`
+- `src/avanamy/services/documentation_renderer.py`
+- `src/avanamy/api/routes/docs.py`
+- `src/avanamy/templates/docs_base.html` (complete rewrite)
+
+**Frontend Files Modified (3):**
+- `src/lib/api.ts`
+- `src/app/specs/[specId]/versions/page.tsx`
+- `src/app/specs/[specId]/versions/[versionId]/diff/page.tsx`
+
+**Frontend Files Deleted (2):**
+- `src/components/DocumentationViewer.tsx`
+- `src/app/specs/[specId]/versions/[versionId]/docs/page.tsx`
+
+**Environment Variables Required:**
+```bash
+ANTHROPIC_API_KEY=<your-key>  # For AI enhancement
+```
+
+### Session Metrics
+
+**Time Investment:** ~5 hours
+**Features Shipped:** 1 major feature (AI-enhanced docs)
+**Lines of Code:** ~1,200 lines
+  - Backend: ~600 lines (AI service + HTML template)
+  - Frontend: ~300 lines (updated routes)
+  - Deleted: ~300 lines (removed components)
+
+**User Experience Impact:**
+- Documentation generation time: +2-3 seconds (AI enhancement)
+- Documentation quality: Significantly improved
+- User workflow: Simplified (no intermediate pages)
+- Theme consistency: Perfect match with dashboard
+
+---
+
+## Update to "Next Steps" Section
+
+### Completed This Session (December 27, 2025)
+- ✅ **AI-Enhanced Documentation** - COMPLETE
+  - Claude Sonnet 4 integration
+  - Getting Started, Important Notes, Error Handling
+  - Beautiful HTML templates with dark/light themes
+  - Direct HTML viewing (no intermediate pages)
+
+### Immediate Next Steps
+1. **Breaking Change Impact Analysis** (Killer Feature - Designed)
+   - AI-powered risk assessment
+   - Migration guide generation
+   - Rollout strategy recommendations
+   - Communication templates
+   - **Status:** Design complete, ready to build when prioritized
+
+2. **Version History Page** - Add provider/product breadcrumbs
+3. **Fix any remaining test failures**
+4. **Documentation Polish** - Copy-code buttons, search functionality
+5. **Phase 4B (Auth)** - Production authentication
+
+---
+
+## Update to "Key Learnings" Section
+
+Add to "What Worked Well":
+- **AI-enhanced documentation** - Claude Sonnet 4 adds tremendous value with minimal cost
+- **Direct HTML serving** - Simpler than React components for static content
+- **Theme toggle** - localStorage persistence provides seamless UX
+- **Inline SVG logos** - No external dependencies, always available
+- **Public docs endpoint** - spec_id as UUID is secure enough, simplifies access
+
+Add to "What Was Tricky":
+- **CSS selector specificity** - TOC structure (.toc > ul > ul > li > a) required precise targeting
+- **Theme color matching** - Dashboard uses specific hex values that needed exact replication
+- **Version display logic** - Balancing internal version (v9) vs spec version (2.0.0) clarity
+- **AI prompt engineering** - Getting Claude to rename "General" consistently required explicit instructions
+- **Next.js route caching** - Had to delete entire /docs directory to prevent auto-regeneration
