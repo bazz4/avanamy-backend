@@ -12,14 +12,13 @@ from fastapi import APIRouter, Depends, Form, Query, UploadFile, File, HTTPExcep
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
 from avanamy.services.api_spec_service import store_api_spec_file, update_api_spec_file
 from avanamy.services.documentation_service import regenerate_all_docs_for_spec
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
-from avanamy.api.dependencies.tenant import get_tenant_id
 from avanamy.db.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -90,7 +89,7 @@ async def upload_api_spec(
     name: Optional[str] = None,
     version: Optional[str] = None,
     description: Optional[str] = None,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -138,7 +137,7 @@ async def upload_new_api_spec_version(
     file: UploadFile = File(...),
     version: Optional[str] = None,
     description: Optional[str] = None,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -152,7 +151,6 @@ async def upload_new_api_spec_version(
       - appends a VersionHistory row
     """
     contents = await file.read()
-    tenant_uuid = UUID(tenant_id)
 
     logger.info(
         "API new-version upload handler start: spec_id=%s filename=%s",
@@ -169,7 +167,7 @@ async def upload_new_api_spec_version(
         spec = ApiSpecRepository.get_by_id(
             db=db,
             spec_id=spec_id,
-            tenant_id=tenant_uuid,
+            tenant_id=tenant_id,
         )
 
         if not spec:
@@ -205,19 +203,16 @@ async def upload_new_api_spec_version(
     return serialize_spec(updated_spec)
 
 @router.get("/", response_model=List[ApiSpecOut])
-def list_api_specs(
-    tenant_id: str = Depends(get_tenant_id),
+async def list_api_specs(
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     with tracer.start_as_current_span("api.list_api_specs") as span:
         span.set_attribute("tenant.id", tenant_id)
 
-        # Convert to UUID if your column is UUID
-        tenant_uuid = UUID(tenant_id)
-
         specs = (
             db.query(ApiSpec)
-            .filter(ApiSpec.tenant_id == tenant_uuid)
+            .filter(ApiSpec.tenant_id == tenant_id)
             .order_by(ApiSpec.created_at.desc())
             .all()
         )
@@ -229,13 +224,11 @@ def list_api_specs(
 # -----------------------------------------------------------------------------
 
 @router.get("/{spec_id}", response_model=ApiSpecOut)
-def get_api_spec(
+async def get_api_spec(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
-    tenant_uuid = UUID(tenant_id)
-
     with tracer.start_as_current_span("api.get_api_spec") as span:
         span.set_attribute("tenant.id", tenant_id)
         span.set_attribute("api_spec.id", spec_id)
@@ -244,7 +237,7 @@ def get_api_spec(
             db.query(ApiSpec)
             .filter(
                 ApiSpec.id == spec_id,
-                ApiSpec.tenant_id == tenant_uuid,
+                ApiSpec.tenant_id == tenant_id,
             )
             .first()
         )
@@ -255,9 +248,9 @@ def get_api_spec(
     return serialize_spec(spec)
 
 @router.post("/{spec_id}/regenerate-docs")
-def regenerate_docs(
+async def regenerate_docs(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -267,8 +260,6 @@ def regenerate_docs(
     """
     logger.info("Regenerating docs for spec_id=%s", spec_id)
 
-    tenant_uuid = UUID(tenant_id)
-
     with tracer.start_as_current_span("api_specs.regenerate_docs") as span:
         span.set_attribute("spec.id", spec_id)
         span.set_attribute("tenant.id", tenant_id)
@@ -276,7 +267,7 @@ def regenerate_docs(
         spec = ApiSpecRepository.get_by_id(
             db=db,
             spec_id=spec_id,
-            tenant_id=tenant_uuid,
+            tenant_id=tenant_id,
         )
 
         if not spec:

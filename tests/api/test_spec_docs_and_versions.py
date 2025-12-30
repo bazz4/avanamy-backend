@@ -1,6 +1,4 @@
 import uuid
-
-import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -11,8 +9,11 @@ from avanamy.api.routes import spec_versions, spec_docs
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.documentation_artifact import DocumentationArtifact
 
+# Configure anyio for async tests
+pytestmark = pytest.mark.anyio
 
-def test_list_versions_for_spec(monkeypatch):
+
+async def test_list_versions_for_spec(monkeypatch):
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
     fake_db = MagicMock()
@@ -26,7 +27,7 @@ def test_list_versions_for_spec(monkeypatch):
     fake_db.query.return_value.join.return_value.join.return_value.filter.return_value.first.return_value = fake_spec
     fake_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = fake_versions
 
-    result = spec_versions.list_versions_for_spec(
+    result = await spec_versions.list_versions_for_spec(
         spec_id=spec_id,
         tenant_id=tenant_id,
         db=fake_db,
@@ -35,12 +36,12 @@ def test_list_versions_for_spec(monkeypatch):
     assert result[1]["label"] == "v2"
 
 
-def test_list_versions_respects_tenant(monkeypatch):
+async def test_list_versions_respects_tenant(monkeypatch):
     fake_db = MagicMock()
     fake_db.query.return_value.join.return_value.join.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.list_versions_for_spec(
+        await spec_versions.list_versions_for_spec(
             spec_id=uuid.uuid4(),
             tenant_id="other-tenant",
             db=fake_db,
@@ -106,7 +107,7 @@ def test_spec_docs_endpoint_not_found(monkeypatch):
 # Tests for new endpoints: get_original_spec_for_version and compare_two_versions
 
 
-def test_get_original_spec_for_version_success(monkeypatch):
+async def test_get_original_spec_for_version_success(monkeypatch):
     """Test successful retrieval of original spec for a version."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -171,7 +172,7 @@ def test_get_original_spec_for_version_success(monkeypatch):
         lambda s3_path: spec_bytes,
     )
 
-    result = spec_versions.get_original_spec_for_version(
+    result = await spec_versions.get_original_spec_for_version(
         spec_id=spec_id,
         version_number=version_number,
         tenant_id=tenant_id,
@@ -183,7 +184,7 @@ def test_get_original_spec_for_version_success(monkeypatch):
     assert "s3_path" in result
 
 
-def test_get_original_spec_for_version_handles_yaml(monkeypatch):
+async def test_get_original_spec_for_version_handles_yaml(monkeypatch):
     """Test that YAML specs are correctly parsed."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -242,7 +243,7 @@ paths:
         lambda s3_path: spec_bytes,
     )
 
-    result = spec_versions.get_original_spec_for_version(
+    result = await spec_versions.get_original_spec_for_version(
         spec_id=spec_id,
         version_number=version_number,
         tenant_id=tenant_id,
@@ -254,13 +255,13 @@ paths:
     assert result["spec"]["openapi"] == "3.0.0"
 
 
-def test_get_original_spec_for_version_tenant_not_found(monkeypatch):
+async def test_get_original_spec_for_version_tenant_not_found(monkeypatch):
     """Test 404 when spec doesn't belong to tenant."""
     fake_db = MagicMock()
     fake_db.query.return_value.join.return_value.join.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.get_original_spec_for_version(
+        await spec_versions.get_original_spec_for_version(
             spec_id=uuid.uuid4(),
             version_number=1,
             tenant_id="wrong-tenant",
@@ -270,7 +271,7 @@ def test_get_original_spec_for_version_tenant_not_found(monkeypatch):
     assert "API spec not found" in exc.value.detail
 
 
-def test_get_original_spec_for_version_version_not_found(monkeypatch):
+async def test_get_original_spec_for_version_version_not_found(monkeypatch):
     """Test 404 when version doesn't exist."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -301,7 +302,7 @@ def test_get_original_spec_for_version_version_not_found(monkeypatch):
     fake_db.query.side_effect = mock_query
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.get_original_spec_for_version(
+        await spec_versions.get_original_spec_for_version(
             spec_id=spec_id,
             version_number=999,
             tenant_id=tenant_id,
@@ -311,7 +312,7 @@ def test_get_original_spec_for_version_version_not_found(monkeypatch):
     assert "Version not found" in exc.value.detail
 
 
-def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
+async def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
     """Test 404 when original_spec artifact doesn't exist for version."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -346,7 +347,7 @@ def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
     fake_db.query.side_effect = mock_query
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.get_original_spec_for_version(
+        await spec_versions.get_original_spec_for_version(
             spec_id=spec_id,
             version_number=version_number,
             tenant_id=tenant_id,
@@ -359,7 +360,7 @@ def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
     assert exc.value.detail["version"] == version_number
 
 
-def test_compare_two_versions_success(monkeypatch):
+async def test_compare_two_versions_success(monkeypatch):
     """Test successful comparison of two versions."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -439,7 +440,7 @@ def test_compare_two_versions_success(monkeypatch):
         mock_download,
     )
 
-    result = spec_versions.compare_two_versions(
+    result = await spec_versions.compare_two_versions(
         spec_id=spec_id,
         version_number=current_version,
         compare_with=compare_version,
@@ -453,7 +454,7 @@ def test_compare_two_versions_success(monkeypatch):
     assert result["previous_spec"] == compare_spec_data
 
 
-def test_compare_two_versions_current_version_not_found(monkeypatch):
+async def test_compare_two_versions_current_version_not_found(monkeypatch):
     """Test 404 when current version doesn't exist."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -484,7 +485,7 @@ def test_compare_two_versions_current_version_not_found(monkeypatch):
     fake_db.query.side_effect = mock_query
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.compare_two_versions(
+        await spec_versions.compare_two_versions(
             spec_id=spec_id,
             version_number=999,
             compare_with=1,
@@ -495,7 +496,7 @@ def test_compare_two_versions_current_version_not_found(monkeypatch):
     assert "999" in exc.value.detail
 
 
-def test_compare_two_versions_compare_version_not_found(monkeypatch):
+async def test_compare_two_versions_compare_version_not_found(monkeypatch):
     """Test 404 when comparison version doesn't exist."""
     tenant_id = "tenant-1"
     spec_id = uuid.uuid4()
@@ -547,7 +548,7 @@ def test_compare_two_versions_compare_version_not_found(monkeypatch):
     )
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.compare_two_versions(
+        await spec_versions.compare_two_versions(
             spec_id=spec_id,
             version_number=current_version,
             compare_with=compare_version,
@@ -558,13 +559,13 @@ def test_compare_two_versions_compare_version_not_found(monkeypatch):
     assert "999" in exc.value.detail
 
 
-def test_compare_two_versions_validates_tenant_ownership(monkeypatch):
+async def test_compare_two_versions_validates_tenant_ownership(monkeypatch):
     """Test that compare endpoint validates tenant ownership."""
     fake_db = MagicMock()
     fake_db.query.return_value.join.return_value.join.return_value.filter.return_value.first.return_value = None
 
     with pytest.raises(HTTPException) as exc:
-        spec_versions.compare_two_versions(
+        await spec_versions.compare_two_versions(
             spec_id=uuid.uuid4(),
             version_number=2,
             compare_with=1,

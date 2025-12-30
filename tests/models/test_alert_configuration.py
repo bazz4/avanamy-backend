@@ -11,23 +11,6 @@ from avanamy.models.tenant import Tenant
 from avanamy.models.provider import Provider
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.watched_api import WatchedAPI
-from avanamy.models.user import User
-
-
-@pytest.fixture
-def user(db, tenant_provider_product):
-    """Create a test user."""
-    tenant, _, _ = tenant_provider_product
-    user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        email="test@example.com",
-        name="Test User"
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 
 @pytest.fixture
@@ -48,7 +31,7 @@ def watched_api(db, tenant_provider_product):
     return api
 
 
-def test_alert_configuration_creation_email(db, tenant_provider_product, watched_api, user):
+def test_alert_configuration_creation_email(db, tenant_provider_product, watched_api):
     """Test creating an email alert configuration."""
     tenant, _, _ = tenant_provider_product
 
@@ -61,8 +44,7 @@ def test_alert_configuration_creation_email(db, tenant_provider_product, watched
         alert_on_non_breaking_changes=False,
         alert_on_endpoint_failures=True,
         alert_on_endpoint_recovery=False,
-        enabled=True,
-        created_by_user_id=user.id
+        enabled=True
     )
 
     db.add(alert_config)
@@ -79,7 +61,6 @@ def test_alert_configuration_creation_email(db, tenant_provider_product, watched
     assert alert_config.alert_on_endpoint_failures is True
     assert alert_config.alert_on_endpoint_recovery is False
     assert alert_config.enabled is True
-    assert alert_config.created_by_user_id == user.id
     assert alert_config.created_at is not None
 
 

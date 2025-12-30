@@ -55,7 +55,7 @@ def _stub_db(product, tenant, provider):
 
 
 def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
 
@@ -143,7 +143,7 @@ def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
 
 
 def test_store_api_spec_file_handles_parse_failure(monkeypatch):
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
 
@@ -219,7 +219,7 @@ def test_store_api_spec_file_handles_parse_failure(monkeypatch):
 
 
 def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
 
@@ -615,7 +615,7 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
 
 def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
     """Test that update_api_spec_file calls store_original_spec_artifact for new versions."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
     spec_id = uuid.uuid4()
@@ -714,7 +714,7 @@ def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
 
 def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
     """Test that update_api_spec_file handles failures in store_original_spec_artifact gracefully."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
     spec_id = uuid.uuid4()
@@ -806,7 +806,7 @@ def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upl
     Note: Based on the code, only update_api_spec_file calls store_original_spec_artifact.
     Initial uploads don't create original_spec artifacts yet.
     """
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
 

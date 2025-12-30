@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 
 from avanamy.db.database import SessionLocal
-from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.models.provider import Provider
 from avanamy.models.api_product import ApiProduct
 
@@ -64,8 +64,8 @@ class ApiProductOut(BaseModel):
 # GET /providers
 # ----------------------------------------
 @router.get("", response_model=list[ProviderOut])
-def list_providers(
-    tenant_id: str = Depends(get_tenant_id),
+async def list_providers(
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -90,9 +90,9 @@ def list_providers(
 # GET /providers/{provider_id}
 # ----------------------------------------
 @router.get("/{provider_id}", response_model=ProviderOut)
-def get_provider(
+async def get_provider(
     provider_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -126,9 +126,9 @@ def get_provider(
 # GET /providers/{provider_id}/products
 # ----------------------------------------
 @router.get("/{provider_id}/products", response_model=list[ApiProductOut])
-def list_provider_products(
+async def list_provider_products(
     provider_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """

@@ -9,8 +9,9 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created
+from avanamy.models.mixins import AuditMixin
 
-class EndpointHealth(Base):
+class EndpointHealth(Base, AuditMixin):
     """
     Health check results for API endpoints.
     

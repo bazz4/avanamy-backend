@@ -17,7 +17,6 @@ import avanamy.models.version_history
 import avanamy.models.api_product
 import avanamy.models.provider
 import avanamy.models.tenant
-import avanamy.models.user
 import avanamy.models.watched_api
 import avanamy.models.alert_configuration
 import avanamy.models.alert_history
@@ -65,11 +64,11 @@ def tenant_provider_product(db):
     from avanamy.models.provider import Provider
     from avanamy.models.api_product import ApiProduct
 
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
 
-    tenant = Tenant(id=tenant_id, name="Test Tenant", slug="test-tenant")
+    tenant = Tenant(id=tenant_id, name="Test Tenant", slug="test-tenant", is_organization=False)
     provider = Provider(
         id=provider_id,
         tenant_id=tenant_id,
@@ -90,7 +89,15 @@ def tenant_provider_product(db):
 
 
 @pytest.fixture
-def client(db):
+def override_auth():
+    """Mock Clerk authentication to return a test tenant ID."""
+    async def mock_get_current_tenant_id():
+        return "tenant_test123"
+    return mock_get_current_tenant_id
+
+
+@pytest.fixture
+def client(db, override_auth):
     """FastAPI test client that routes all DB deps to the test session."""
     def override_get_db():
         try:
@@ -100,8 +107,10 @@ def client(db):
 
     # Apply override for get_db dependency used across all routes
     from avanamy.db.database import get_db as db_get_db
+    from avanamy.auth.clerk import get_current_tenant_id
 
     app.dependency_overrides[db_get_db] = override_get_db
+    app.dependency_overrides[get_current_tenant_id] = override_auth
 
     test_client = TestClient(app)
     try:

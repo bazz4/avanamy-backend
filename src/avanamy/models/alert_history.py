@@ -9,8 +9,9 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created
+from avanamy.models.mixins import AuditMixin
 
-class AlertHistory(Base):
+class AlertHistory(Base, AuditMixin):
     """
     Historical record of all alerts sent.
     
@@ -19,7 +20,7 @@ class AlertHistory(Base):
     __tablename__ = "alert_history"
 
     id = uuid_pk()
-    tenant_id = uuid_fk("tenants", nullable=False)
+    tenant_id = Column(String(255), ForeignKey("tenants.id"), nullable=False)
     watched_api_id = uuid_fk("watched_apis", nullable=False)
     alert_config_id = uuid_fk("alert_configurations", nullable=False)
     version_history_id = Column(Integer, ForeignKey("version_history.id"), nullable=True)
@@ -34,7 +35,6 @@ class AlertHistory(Base):
     error_message = Column(Text, nullable=True)
     
     sent_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = timestamp_created()
 
     tenant = relationship("Tenant")
     watched_api = relationship("WatchedAPI")

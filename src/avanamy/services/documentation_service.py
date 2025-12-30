@@ -2,7 +2,6 @@
 
 import json
 import logging
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 from opentelemetry import trace
@@ -81,17 +80,6 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
             logger.error("Cannot generate documentation: spec %s has no tenant_id", spec.id)
             return None
         logger.info("tenant_id raw value on spec = %s (%s)", tenant_id, type(tenant_id))
-        # Ensure proper UUID type (Postgres UUID type accepts python UUID)
-        try:
-            tenant_uuid = UUID(str(tenant_id))
-        except Exception:
-            logger.exception(
-                "Invalid tenant_id value on spec %s: %s",
-                spec.id,
-                tenant_id,
-            )
-            return None
-        logger.info("tenant_uuid raw value on spec = %s (%s)", tenant_uuid, type(tenant_uuid))
         # Resolve product + tenant slugs
         product = db.query(ApiProduct).filter(ApiProduct.id == spec.api_product_id).first()
         if not product:
@@ -186,16 +174,16 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
 
         repo.create(
             db=db,
-            tenant_id=tenant_uuid,
+            tenant_id=tenant_id,
             api_spec_id=spec.id,
             artifact_type=ARTIFACT_TYPE_API_MARKDOWN,
             s3_path=md_key,
             version_history_id=version_history_id,
         )
-        
+
         repo.create(
             db=db,
-            tenant_id=tenant_uuid,
+            tenant_id=tenant_id,
             api_spec_id=spec.id,
             artifact_type=ARTIFACT_TYPE_API_HTML,
             s3_path=html_key,

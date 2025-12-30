@@ -15,7 +15,7 @@ from avanamy.services.version_diff_service import (
 def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     """Test that version 1 does not compute any diff."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 1
     new_normalized_spec = {"openapi": "3.0.0", "paths": {}}
 
@@ -37,7 +37,7 @@ def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
 def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
     """Test that version 2 computes diff against version 1."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 2
     previous_version = 1
 
@@ -99,7 +99,7 @@ def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
 def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
     """Test graceful handling when previous spec cannot be loaded."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 5
     new_normalized_spec = {"openapi": "3.0.0", "paths": {}}
 
@@ -127,7 +127,7 @@ def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
 def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
     """Test graceful handling when diff computation fails."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 3
 
     previous_normalized_spec = {"openapi": "3.0.0", "paths": {}}
@@ -163,7 +163,7 @@ def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
 def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
     """Test graceful handling when VersionHistory record is not found."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 4
 
     previous_normalized_spec = {"openapi": "3.0.0", "paths": {}}
@@ -206,7 +206,7 @@ def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
 def test_load_normalized_spec_for_version_success(monkeypatch):
     """Test successful loading of normalized spec from S3."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 3
     version_history_id = 123
 
@@ -269,7 +269,7 @@ def test_load_normalized_spec_for_version_success(monkeypatch):
 def test_load_normalized_spec_for_version_handles_missing_version_history():
     """Test handling when VersionHistory record doesn't exist."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 10
 
     class MockQuery:
@@ -295,7 +295,7 @@ def test_load_normalized_spec_for_version_handles_missing_version_history():
 def test_load_normalized_spec_for_version_handles_missing_artifact():
     """Test handling when normalized_spec artifact doesn't exist for a version."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 5
     version_history_id = 456
 
@@ -336,7 +336,7 @@ def test_load_normalized_spec_for_version_handles_missing_artifact():
 def test_load_normalized_spec_for_version_handles_s3_download_error(monkeypatch):
     """Test handling when S3 download fails."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 2
     version_history_id = 789
 
@@ -393,7 +393,7 @@ def test_load_normalized_spec_for_version_with_version_gaps():
     it should find version 17 by the FK relationship, not by counting.
     """
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 17  # Version 17 exists, but 1-16 might be missing
     version_history_id = 9999
 
@@ -457,7 +457,7 @@ def test_load_normalized_spec_for_version_with_version_gaps():
 def test_load_normalized_spec_for_version_handles_invalid_json(monkeypatch):
     """Test handling when downloaded spec is not valid JSON."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     version = 4
     version_history_id = 555
 
@@ -509,7 +509,7 @@ def test_load_normalized_spec_for_version_handles_invalid_json(monkeypatch):
 def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
     """Test that breaking changes are correctly identified and stored."""
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     current_version = 3
 
     previous_normalized_spec = {

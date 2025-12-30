@@ -9,7 +9,7 @@ from avanamy.services.original_spec_artifact_service import store_original_spec_
 
 def test_store_original_spec_artifact_creates_artifact_with_correct_type(monkeypatch):
     """Test that store_original_spec_artifact creates artifact with artifact_type='original_spec'."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     api_spec_id = uuid.uuid4()
     version_history_id = 1
     s3_path = "tenants/tenant-a/providers/provider-a/api_products/product-a/versions/v1/spec.json"
@@ -50,7 +50,7 @@ def test_store_original_spec_artifact_creates_artifact_with_correct_type(monkeyp
 
 def test_store_original_spec_artifact_links_to_version_history(monkeypatch):
     """Test that the artifact is correctly linked to version_history_id."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     api_spec_id = uuid.uuid4()
     version_history_id = 5  # Not version 1 to test non-initial versions
     s3_path = "tenants/tenant-a/providers/provider-a/api_products/product-a/versions/v5/spec.yaml"
@@ -80,7 +80,7 @@ def test_store_original_spec_artifact_links_to_version_history(monkeypatch):
 
 def test_store_original_spec_artifact_stores_correct_s3_path(monkeypatch):
     """Test that the S3 path is stored correctly in the artifact."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     api_spec_id = uuid.uuid4()
     version_history_id = 2
     s3_path = "tenants/custom-tenant/providers/custom-provider/api_products/custom-product/versions/v2/openapi.json"
@@ -110,7 +110,7 @@ def test_store_original_spec_artifact_stores_correct_s3_path(monkeypatch):
 
 def test_store_original_spec_artifact_handles_error_gracefully(monkeypatch):
     """Test that errors during artifact creation are propagated."""
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     api_spec_id = uuid.uuid4()
     version_history_id = 1
     s3_path = "tenants/tenant-a/providers/provider-a/api_products/product-a/versions/v1/spec.json"
@@ -139,9 +139,9 @@ def test_store_original_spec_artifact_handles_error_gracefully(monkeypatch):
     assert "Database error" in str(exc_info.value)
 
 
-def test_store_original_spec_artifact_passes_uuids_as_is(monkeypatch):
-    """Test that UUID parameters are passed as UUID objects to the repository."""
-    tenant_id = uuid.uuid4()
+def test_store_original_spec_artifact_passes_tenant_id_as_string(monkeypatch):
+    """Test that tenant_id is passed as a string to the repository."""
+    tenant_id = "tenant_test123"
     api_spec_id = uuid.uuid4()
     version_history_id = 3
     s3_path = "tenants/tenant-a/providers/provider-a/api_products/product-a/versions/v3/spec.json"
@@ -166,8 +166,8 @@ def test_store_original_spec_artifact_passes_uuids_as_is(monkeypatch):
     )
 
     kwargs = create_mock.call_args.kwargs
-    # Verify UUIDs are passed as UUID objects (not converted to strings)
-    assert isinstance(kwargs["tenant_id"], uuid.UUID)
+    # Verify tenant_id is passed as string and api_spec_id as UUID
+    assert isinstance(kwargs["tenant_id"], str)
     assert isinstance(kwargs["api_spec_id"], uuid.UUID)
     assert kwargs["tenant_id"] == tenant_id
     assert kwargs["api_spec_id"] == api_spec_id

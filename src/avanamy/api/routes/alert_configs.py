@@ -18,6 +18,7 @@ from datetime import datetime
 
 from avanamy.db.database import get_db
 from avanamy.models.alert_configuration import AlertConfiguration
+from avanamy.auth.clerk import get_current_tenant_id
 from opentelemetry import trace
 
 router = APIRouter(prefix="/alert-configs", tags=["alert-configs"])
@@ -79,19 +80,12 @@ class AlertConfigResponse(BaseModel):
         from_attributes = True
 
 
-# Dependency to get tenant_id
-# For MVP, hardcoded. In production, would come from JWT
-def get_tenant_id(x_tenant_id: UUID = Depends(lambda: UUID("11111111-1111-1111-1111-111111111111"))):
-    """Get tenant ID from request. For MVP, hardcoded. Will use JWT in production."""
-    return x_tenant_id
-
-
 # Endpoints
 
 @router.post("", response_model=AlertConfigResponse, status_code=status.HTTP_201_CREATED)
-def create_alert_config(
+async def create_alert_config(
     request: CreateAlertConfigRequest,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
@@ -131,9 +125,9 @@ def create_alert_config(
 
 
 @router.get("", response_model=List[AlertConfigResponse])
-def list_alert_configs(
+async def list_alert_configs(
     watched_api_id: Optional[UUID] = None,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
@@ -155,9 +149,9 @@ def list_alert_configs(
 
 
 @router.get("/{config_id}", response_model=AlertConfigResponse)
-def get_alert_config(
+async def get_alert_config(
     config_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Get details of a specific alert configuration."""
@@ -177,10 +171,10 @@ def get_alert_config(
 
 
 @router.patch("/{config_id}", response_model=AlertConfigResponse)
-def update_alert_config(
+async def update_alert_config(
     config_id: UUID,
     request: UpdateAlertConfigRequest,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
@@ -229,9 +223,9 @@ def update_alert_config(
 
 
 @router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_alert_config(
+async def delete_alert_config(
     config_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Delete an alert configuration."""
@@ -254,7 +248,7 @@ def delete_alert_config(
 @router.get("/{config_id}/test", response_model=dict)
 async def test_alert_config(
     config_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
