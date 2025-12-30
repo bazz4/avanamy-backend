@@ -1,4 +1,5 @@
 """Standard column definitions for consistency."""
+from uuid import uuid4
 from sqlalchemy import Column, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -8,7 +9,7 @@ def uuid_pk():
     return Column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default=text("uuid_generate_v4()"),
+        default=uuid4,
         nullable=False
     )
 

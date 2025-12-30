@@ -3,8 +3,9 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_fk, timestamp_created
+from avanamy.models.mixins import AuditMixin
 
-class VersionHistory(Base):
+class VersionHistory(Base, AuditMixin):
     __tablename__ = "version_history"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -14,8 +15,5 @@ class VersionHistory(Base):
     diff = Column(JSON, nullable=True)
     summary = Column(String, nullable=True)
     changelog = Column(String, nullable=True)
-
-    created_at = timestamp_created()
-    created_by_user_id = uuid_fk("users", nullable=True)
 
     api_spec = relationship("ApiSpec")

@@ -6,12 +6,13 @@ for changes. When changes are detected, new versions are automatically
 created in the system.
 """
 
-from sqlalchemy import Column, String, Boolean, Integer, DateTime
+from sqlalchemy import Column, String, Boolean, Integer, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created, timestamp_updated
+from avanamy.models.mixins import AuditMixin
 
-class WatchedAPI(Base):
+class WatchedAPI(Base, AuditMixin):
     """
     External API that should be monitored for spec changes.
     
@@ -20,7 +21,7 @@ class WatchedAPI(Base):
     __tablename__ = "watched_apis"
 
     id = uuid_pk()
-    tenant_id = uuid_fk("tenants", nullable=False)
+    tenant_id = Column(String(255), ForeignKey("tenants.id"), nullable=False)
     provider_id = uuid_fk("providers", nullable=False)
     api_product_id = uuid_fk("api_products", nullable=False)
     api_spec_id = uuid_fk("api_specs", nullable=True)
@@ -39,9 +40,6 @@ class WatchedAPI(Base):
     consecutive_failures = Column(Integer, nullable=False, default=0)
 
     status = Column(String, nullable=False, default="active")
-
-    created_at = timestamp_created()
-    updated_at = timestamp_updated()
 
     tenant = relationship("Tenant", back_populates="watched_apis")
     provider = relationship("Provider", back_populates="watched_apis")

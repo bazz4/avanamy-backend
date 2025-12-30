@@ -58,7 +58,7 @@ def test_watched_api_query_by_tenant(db, tenant_provider_product):
     tenant, provider, product = tenant_provider_product
 
     # Create another tenant with its own data
-    tenant2 = Tenant(id=uuid.uuid4(), name="Tenant 2", slug="tenant-2")
+    tenant2 = Tenant(id="tenant_test456", name="Tenant 2", slug="tenant-2", is_organization=False)
     provider2 = Provider(id=uuid.uuid4(), tenant_id=tenant2.id, name="Provider 2", slug="provider-2")
     product2 = ApiProduct(id=uuid.uuid4(), tenant_id=tenant2.id, provider_id=provider2.id, name="Product 2", slug="product-2")
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from avanamy.db.database import SessionLocal
-from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
@@ -58,9 +58,9 @@ class SpecVersionOut(BaseModel):
     "/{spec_id}/versions",
     response_model=List[SpecVersionOut],
 )
-def list_versions_for_spec(
+async def list_versions_for_spec(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -108,10 +108,10 @@ def list_versions_for_spec(
     "/{spec_id}/versions/{version_id}",
     response_model=SpecVersionOut,
 )
-def get_version_detail(
+async def get_version_detail(
     spec_id: UUID,
     version_id: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -163,10 +163,10 @@ def get_version_detail(
 @router.get(
     "/{spec_id}/versions/{version_number}/diff",
 )
-def get_version_diff(
+async def get_version_diff(
     spec_id: UUID,
     version_number: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -223,10 +223,10 @@ def get_version_diff(
 @router.get(
     "/{spec_id}/versions/{version_number}/schema",
 )
-def get_version_schema(
+async def get_version_schema(
     spec_id: UUID,
     version_number: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -278,10 +278,10 @@ def get_version_schema(
 @router.get(
     "/{spec_id}/versions/{version_number}/original-spec",
 )
-def get_original_spec_for_version(
+async def get_original_spec_for_version(
     spec_id: UUID,
     version_number: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -389,11 +389,11 @@ def get_original_spec_for_version(
 @router.get(
     "/{spec_id}/versions/{version_number}/compare",
 )
-def compare_two_versions(
+async def compare_two_versions(
     spec_id: UUID,
     version_number: int,
     compare_with: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """

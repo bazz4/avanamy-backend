@@ -2,7 +2,6 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-import avanamy.models.user
 import avanamy.models.tenant
 import avanamy.models.provider
 import avanamy.models.api_product

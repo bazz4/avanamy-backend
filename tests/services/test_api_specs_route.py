@@ -5,7 +5,7 @@ from unittest.mock import ANY, patch
 
 def test_regenerate_docs_endpoint_success(client):
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     fake_spec = SimpleNamespace(id=spec_id, api_product_id=uuid.uuid4())
 
     with patch(
@@ -29,7 +29,7 @@ def test_regenerate_docs_endpoint_success(client):
 
 def test_regenerate_docs_endpoint_returns_400_on_generation_failure(client):
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     fake_spec = SimpleNamespace(id=spec_id, api_product_id=uuid.uuid4())
 
     with patch(
@@ -50,14 +50,14 @@ def test_regenerate_docs_endpoint_returns_400_on_generation_failure(client):
 
 def test_regenerate_docs_endpoint_not_found(client):
     spec_id = uuid.uuid4()
-    tenant_id = uuid.uuid4()
+    tenant_id = "tenant_test123"
     with patch(
         "avanamy.api.routes.api_specs.ApiSpecRepository.get_by_id",
         return_value=None,
     ):
         resp = client.post(
             f"/api-specs/{spec_id}/regenerate-docs",
-            headers={"X-Tenant-ID": str(tenant_id)},
+            headers={"X-Tenant-ID": tenant_id},
         )
 
     assert resp.status_code == 404

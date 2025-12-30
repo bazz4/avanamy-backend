@@ -17,6 +17,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.db.database import get_db
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.provider import Provider
@@ -124,7 +125,7 @@ def create_watched_api(
 
 @router.get("", response_model=List[WatchedAPIResponse])
 def list_watched_apis(
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: UUID = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """List all watched APIs for the current tenant."""

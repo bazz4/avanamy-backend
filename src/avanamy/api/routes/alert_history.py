@@ -18,6 +18,7 @@ from avanamy.models.alert_history import AlertHistory
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.provider import Provider
 from avanamy.models.api_product import ApiProduct
+from avanamy.auth.clerk import get_current_tenant_id
 from opentelemetry import trace
 
 router = APIRouter(prefix="/alert-history", tags=["alert-history"])
@@ -48,17 +49,11 @@ class AlertHistoryResponse(BaseModel):
         from_attributes = True
 
 
-# Dependency to get tenant_id
-def get_tenant_id(x_tenant_id: UUID = Depends(lambda: UUID("11111111-1111-1111-1111-111111111111"))):
-    """Get tenant ID from request. For MVP, hardcoded."""
-    return x_tenant_id
-
-
 # Endpoints
 
 @router.get("", response_model=List[AlertHistoryResponse])
-def list_alert_history(
-    tenant_id: UUID = Depends(get_tenant_id),
+async def list_alert_history(
+    tenant_id: str = Depends(get_current_tenant_id),
     watched_api_id: Optional[UUID] = Query(None, description="Filter by watched API"),
     severity: Optional[str] = Query(None, description="Filter by severity: info, warning, critical"),
     status: Optional[str] = Query(None, description="Filter by status: pending, sent, failed"),
@@ -126,9 +121,9 @@ def list_alert_history(
 
 
 @router.get("/{alert_id}", response_model=AlertHistoryResponse)
-def get_alert_history(
+async def get_alert_history(
     alert_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Get details of a specific alert."""

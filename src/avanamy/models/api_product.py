@@ -1,23 +1,19 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Column, String, ForeignKey   
 from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created, timestamp_updated
 import sqlalchemy as sa
+from avanamy.models.mixins import AuditMixin
 
-class ApiProduct(Base):
+class ApiProduct(Base, AuditMixin):
     __tablename__ = "api_products"
 
     id = uuid_pk()
-    tenant_id = uuid_fk("tenants", nullable=True)
+    tenant_id = Column(String(255), ForeignKey("tenants.id"), nullable=False)
     provider_id = uuid_fk("providers", nullable=False)
 
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False)
-
-    created_at = timestamp_created()
-    updated_at = timestamp_updated()
-    created_by_user_id = uuid_fk("users", nullable=True)
-    updated_by_user_id = uuid_fk("users", nullable=True)
 
     __table_args__ = (
         sa.UniqueConstraint(

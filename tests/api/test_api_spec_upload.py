@@ -105,7 +105,7 @@ def test_upload_new_version_not_found(client):
         resp = client.post(
             f"/api-specs/{missing_id}/upload-new-version",
             files={"file": ("spec.json", b"{}", "application/json")},
-            headers={"X-Tenant-ID": str(uuid.uuid4())},
+            headers={"X-Tenant-ID": "tenant_other"},
         )
 
     assert resp.status_code == 404
