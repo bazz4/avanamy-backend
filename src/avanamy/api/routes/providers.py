@@ -1,170 +1,227 @@
-# src/avanamy/api/routes/providers.py
-
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+"""
+Provider CRUD endpoints.
+"""
+from typing import List
+from datetime import datetime
 from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field, field_validator
+import uuid
 
-from avanamy.db.database import SessionLocal
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.db.database import get_db
 from avanamy.models.provider import Provider
-from avanamy.models.api_product import ApiProduct
+from avanamy.auth.clerk import get_current_tenant_id
 
-from opentelemetry import trace
-import logging
-
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
-
-router = APIRouter(
-    prefix="/providers",
-    tags=["Providers"],
-)
-
-# ----------------------------------------
-# DB dependency
-# ----------------------------------------
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+router = APIRouter(prefix="/providers", tags=["providers"])
 
 
-# ----------------------------------------
-# Pydantic models
-# ----------------------------------------
-from pydantic import BaseModel
+# Pydantic Schemas
+class ProviderCreate(BaseModel):
+    """Schema for creating a provider."""
+    name: str = Field(..., min_length=1, max_length=255)
+    slug: str = Field(..., min_length=1, max_length=255)
+    website: str | None = Field(None, max_length=500)
+    logo_url: str | None = Field(None, max_length=500)
+    description: str | None = None
 
 
-class ProviderOut(BaseModel):
-    id: UUID
-    tenant_id: UUID
+class ProviderUpdate(BaseModel):
+    """Schema for updating a provider."""
+    name: str | None = Field(None, min_length=1, max_length=255)
+    slug: str | None = Field(None, min_length=1, max_length=255)
+    website: str | None = Field(None, max_length=500)
+    logo_url: str | None = Field(None, max_length=500)
+    description: str | None = None
+
+
+class ProviderResponse(BaseModel):
+    """Schema for provider response."""
+    id: str
+    tenant_id: str
     name: str
     slug: str
+    website: str | None = None
+    logo_url: str | None = None
     description: str | None = None
+    created_at: str
+    updated_at: str | None = None
+    created_by_user_id: str | None = None
+    updated_by_user_id: str | None = None
 
     class Config:
         from_attributes = True
 
+    @field_validator('id', 'tenant_id', 'created_by_user_id', 'updated_by_user_id', mode='before')
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        """Convert UUID objects to strings."""
+        if isinstance(v, UUID):
+            return str(v)
+        return v
+    
+    @field_validator('created_at', 'updated_at', mode='before')
+    @classmethod
+    def convert_datetime_to_str(cls, v):
+        """Convert datetime objects to ISO format strings."""
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
 
-class ApiProductOut(BaseModel):
-    id: UUID
-    tenant_id: UUID
-    provider_id: UUID
-    name: str
-    slug: str
-    description: str | None = None
 
-    class Config:
-        from_attributes = True
-
-
-# ----------------------------------------
-# GET /providers
-# ----------------------------------------
-@router.get("", response_model=list[ProviderOut])
+# Routes
+@router.get("", response_model=List[ProviderResponse])
 async def list_providers(
     tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    List all providers for this tenant.
-    """
-    with tracer.start_as_current_span("api.list_providers") as span:
-        span.set_attribute("tenant.id", tenant_id)
-
-        providers = (
-            db.query(Provider)
-            .filter(Provider.tenant_id == tenant_id)
-            .order_by(Provider.name.asc())
-            .all()
-        )
-
-        logger.info("Fetched %d providers for tenant=%s", len(providers), tenant_id)
-
-        return providers
+    """List all providers for the current tenant."""
+    providers = db.query(Provider).filter(
+        Provider.tenant_id == tenant_id
+    ).order_by(Provider.name).all()
+    
+    return providers
 
 
-# ----------------------------------------
-# GET /providers/{provider_id}
-# ----------------------------------------
-@router.get("/{provider_id}", response_model=ProviderOut)
+@router.get("/{provider_id}", response_model=ProviderResponse)
 async def get_provider(
-    provider_id: UUID,
+    provider_id: str,
     tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    Retrieve a single provider (tenant-scoped).
-    """
-    with tracer.start_as_current_span("api.get_provider") as span:
-        span.set_attribute("tenant.id", tenant_id)
-        span.set_attribute("provider.id", str(provider_id))
-
-        provider = (
-            db.query(Provider)
-            .filter(
-                Provider.id == provider_id,
-                Provider.tenant_id == tenant_id,
-            )
-            .first()
+    """Get a specific provider."""
+    provider = db.query(Provider).filter(
+        Provider.id == provider_id,
+        Provider.tenant_id == tenant_id
+    ).first()
+    
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Provider {provider_id} not found"
         )
-
-        if not provider:
-            logger.warning(
-                "Provider not found provider_id=%s tenant=%s",
-                provider_id,
-                tenant_id,
-            )
-            raise HTTPException(status_code=404, detail="Provider not found")
-
-        return provider
+    
+    return provider
 
 
-# ----------------------------------------
-# GET /providers/{provider_id}/products
-# ----------------------------------------
-@router.get("/{provider_id}/products", response_model=list[ApiProductOut])
-async def list_provider_products(
-    provider_id: UUID,
+@router.post("", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
+async def create_provider(
+    provider_data: ProviderCreate,
     tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    List all API products under a given provider.
-    """
-    with tracer.start_as_current_span("api.list_provider_products") as span:
-        span.set_attribute("tenant.id", tenant_id)
-        span.set_attribute("provider.id", str(provider_id))
+    """Create a new provider."""
+    # Check if slug already exists for this tenant
+    existing = db.query(Provider).filter(
+        Provider.tenant_id == tenant_id,
+        Provider.slug == provider_data.slug
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Provider with slug '{provider_data.slug}' already exists"
+        )
+    
+    # Create provider
+    provider = Provider(
+        id=str(uuid.uuid4()),
+        tenant_id=tenant_id,
+        name=provider_data.name,
+        slug=provider_data.slug,
+        website=provider_data.website,
+        logo_url=provider_data.logo_url,
+        description=provider_data.description,
+        created_by_user_id=tenant_id,  # Using tenant_id as user_id for now
+        updated_by_user_id=tenant_id
+    )
+    
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    
+    return provider
 
-        # Verify provider exists
-        provider = (
-            db.query(Provider)
-            .filter(
-                Provider.id == provider_id,
-                Provider.tenant_id == tenant_id,
+
+@router.put("/{provider_id}", response_model=ProviderResponse)
+async def update_provider(
+    provider_id: str,
+    provider_data: ProviderUpdate,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """Update a provider."""
+    provider = db.query(Provider).filter(
+        Provider.id == provider_id,
+        Provider.tenant_id == tenant_id
+    ).first()
+    
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Provider {provider_id} not found"
+        )
+    
+    # Check if slug is being changed and if it conflicts
+    if provider_data.slug and provider_data.slug != provider.slug:
+        existing = db.query(Provider).filter(
+            Provider.tenant_id == tenant_id,
+            Provider.slug == provider_data.slug,
+            Provider.id != provider_id
+        ).first()
+        
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Provider with slug '{provider_data.slug}' already exists"
             )
-            .first()
-        )
-        if not provider:
-            raise HTTPException(status_code=404, detail="Provider not found")
+    
+    # Update fields
+    update_data = provider_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(provider, field, value)
+    
+    provider.updated_by_user_id = tenant_id  # Using tenant_id as user_id for now
+    
+    db.commit()
+    db.refresh(provider)
+    
+    return provider
 
-        products = (
-            db.query(ApiProduct)
-            .filter(
-                ApiProduct.provider_id == provider_id,
-                ApiProduct.tenant_id == tenant_id,
-            )
-            .order_by(ApiProduct.name.asc())
-            .all()
-        )
 
-        logger.info(
-            "Fetched %d products for provider=%s tenant=%s",
-            len(products),
-            provider_id,
-            tenant_id,
+@router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_provider(
+    provider_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """Delete a provider."""
+    provider = db.query(Provider).filter(
+        Provider.id == provider_id,
+        Provider.tenant_id == tenant_id
+    ).first()
+    
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Provider {provider_id} not found"
         )
-
-        return products
+    
+    # Check if provider has any API products
+    # (This prevents deleting providers with existing products)
+    # You can remove this check if you want cascade delete
+    from avanamy.models.api_product import ApiProduct
+    has_products = db.query(ApiProduct).filter(
+        ApiProduct.provider_id == provider_id
+    ).first()
+    
+    if has_products:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete provider with existing API products. Delete products first."
+        )
+    
+    db.delete(provider)
+    db.commit()
+    
+    return None
