@@ -19,7 +19,7 @@ class Provider(Base, AuditMixin):
     
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False)
-    website = Column(String(255), nullable=True)
+    website = Column(String(500), nullable=True)
     logo_url = Column(String(500), nullable=True)
     description = Column(String, nullable=True)
     status = Column(String, nullable=False, server_default="active")

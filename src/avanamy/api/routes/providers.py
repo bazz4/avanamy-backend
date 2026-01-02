@@ -123,16 +123,21 @@ async def create_provider(
             detail=f"Provider with slug '{provider_data.slug}' already exists"
         )
     
+    # Clean data - convert empty strings to None
+    website = provider_data.website.strip() if provider_data.website else None
+    logo_url = provider_data.logo_url.strip() if provider_data.logo_url else None
+    description = provider_data.description.strip() if provider_data.description else None
+    
     # Create provider
     provider = Provider(
         id=str(uuid.uuid4()),
         tenant_id=tenant_id,
-        name=provider_data.name,
-        slug=provider_data.slug,
-        website=provider_data.website,
-        logo_url=provider_data.logo_url,
-        description=provider_data.description,
-        created_by_user_id=tenant_id,  # Using tenant_id as user_id for now
+        name=provider_data.name.strip(),
+        slug=provider_data.slug.strip(),
+        website=website if website else None,
+        logo_url=logo_url if logo_url else None,
+        description=description if description else None,
+        created_by_user_id=tenant_id,
         updated_by_user_id=tenant_id
     )
     
