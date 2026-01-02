@@ -23,6 +23,7 @@ class Provider(Base, AuditMixin):
     logo_url = Column(String(500), nullable=True)
     description = Column(String, nullable=True)
     status = Column(String, nullable=False, server_default="active")
+    
 
     __table_args__ = (
         UniqueConstraint(
@@ -33,3 +34,4 @@ class Provider(Base, AuditMixin):
     )
 
     watched_apis = relationship("WatchedAPI", back_populates="provider")
+    api_products = relationship("ApiProduct", back_populates="provider")

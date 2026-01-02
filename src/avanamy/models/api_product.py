@@ -14,6 +14,7 @@ class ApiProduct(Base, AuditMixin):
 
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False)
+    description = Column(String, nullable=True)
 
     __table_args__ = (
         sa.UniqueConstraint(
@@ -24,3 +25,4 @@ class ApiProduct(Base, AuditMixin):
     )
 
     watched_apis = relationship("WatchedAPI", back_populates="api_product")
+    provider = relationship("Provider", back_populates="api_products")
