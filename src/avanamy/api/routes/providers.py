@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 import uuid
+from fastapi import Body
 
 from avanamy.db.database import get_db
 from avanamy.models.provider import Provider
@@ -193,40 +194,72 @@ async def update_provider(
     
     return provider
 
-
-@router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{provider_id}")
 async def delete_provider(
-    provider_id: str,
+    provider_id: UUID,
     tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Delete a provider."""
+    """Delete a provider (checks for related products)"""
+    from avanamy.models.api_product import ApiProduct
+    
     provider = db.query(Provider).filter(
         Provider.id == provider_id,
         Provider.tenant_id == tenant_id
     ).first()
     
     if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Provider {provider_id} not found"
-        )
+        raise HTTPException(status_code=404, detail="Provider not found")
     
-    # Check if provider has any API products
-    # (This prevents deleting providers with existing products)
-    # You can remove this check if you want cascade delete
-    from avanamy.models.api_product import ApiProduct
-    has_products = db.query(ApiProduct).filter(
+    # Check for related API products
+    product_count = db.query(ApiProduct).filter(
         ApiProduct.provider_id == provider_id
-    ).first()
+    ).count()
     
-    if has_products:
+    if product_count > 0:
+        # Return structured error
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete provider with existing API products. Delete products first."
+            status_code=400,
+            detail={
+                "message": f"Cannot delete provider with {product_count} API product(s). Delete products first or archive the provider instead.",
+                "related_count": product_count,
+                "can_archive": True
+            }
         )
     
     db.delete(provider)
     db.commit()
+    return {"message": "Provider deleted successfully"}
+
+@router.patch("/{provider_id}/status")
+async def update_provider_status(
+    provider_id: UUID,
+    status: str = Body(..., embed=True),
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """Update provider status"""
+    if status not in ['active', 'inactive', 'archived']:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid status. Must be: active, inactive, or archived"
+        )
     
-    return None
+    provider = db.query(Provider).filter(
+        Provider.id == provider_id,
+        Provider.tenant_id == tenant_id
+    ).first()
+    
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    
+    provider.status = status
+    db.commit()
+    db.refresh(provider)
+    
+    return {
+        "id": str(provider.id),
+        "name": provider.name,
+        "status": provider.status,
+        "message": f"Provider status updated to {status}"
+    }

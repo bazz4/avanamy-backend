@@ -101,7 +101,7 @@ async def upload_api_spec(
     with tracer.start_as_current_span("api.upload_api_spec") as span:
         span.set_attribute("file.size", len(contents) if contents is not None else 0)
 
-    spec = store_api_spec_file(
+    spec = await store_api_spec_file(
         db=db,
         file_bytes=contents,
         filename=file.filename,
@@ -183,7 +183,7 @@ async def upload_new_api_spec_version(
         effective_description = description if description is not None else spec.description
 
         # 3. Update the spec record + regenerate docs
-        updated_spec = update_api_spec_file(
+        updated_spec = await update_api_spec_file(
             db=db,
             spec=spec,
             file_bytes=contents,

@@ -4,7 +4,7 @@ API Product CRUD endpoints.
 from typing import List
 from datetime import datetime
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 import uuid
@@ -12,6 +12,7 @@ import uuid
 from avanamy.db.database import get_db
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
+from avanamy.models.api_spec import ApiSpec
 from avanamy.auth.clerk import get_current_tenant_id
 
 router = APIRouter(prefix="/api-products", tags=["api-products"])
@@ -49,11 +50,15 @@ class ApiProductResponse(BaseModel):
     # Include provider info
     provider_name: str | None = None
     provider_slug: str | None = None
+    # ADD THESE LINES:
+    latest_spec_id: str | None = None
+    latest_spec_version: str | None = None
+    latest_spec_uploaded_at: str | None = None
 
     class Config:
         from_attributes = True
 
-    @field_validator('id', 'tenant_id', 'provider_id', 'created_by_user_id', 'updated_by_user_id', mode='before')
+    @field_validator('id', 'tenant_id', 'provider_id', 'created_by_user_id', 'updated_by_user_id', 'latest_spec_id', mode='before')
     @classmethod
     def convert_uuid_to_str(cls, v):
         """Convert UUID objects to strings."""
@@ -61,7 +66,7 @@ class ApiProductResponse(BaseModel):
             return str(v)
         return v
     
-    @field_validator('created_at', 'updated_at', mode='before')
+    @field_validator('created_at', 'updated_at', 'latest_spec_uploaded_at', mode='before')
     @classmethod
     def convert_datetime_to_str(cls, v):
         """Convert datetime objects to ISO format strings."""
@@ -83,11 +88,19 @@ async def list_api_products(
     if provider_id:
         query = query.filter(ApiProduct.provider_id == provider_id)
     
-    products = query.order_by(ApiProduct.name).all()
-    
+    products = query.join(ApiProduct.provider).order_by(
+        Provider.name, 
+        ApiProduct.name
+    ).all()
+        
     # Enrich with provider info
     result = []
     for product in products:
+        # Get latest spec for this product
+        latest_spec = db.query(ApiSpec).filter(
+            ApiSpec.api_product_id == product.id
+        ).order_by(ApiSpec.created_at.desc()).first()
+        
         product_dict = {
             'id': product.id,
             'tenant_id': product.tenant_id,
@@ -101,6 +114,10 @@ async def list_api_products(
             'updated_by_user_id': product.updated_by_user_id,
             'provider_name': product.provider.name if product.provider else None,
             'provider_slug': product.provider.slug if product.provider else None,
+            # Add latest spec info
+            'latest_spec_id': latest_spec.id if latest_spec else None,
+            'latest_spec_version': latest_spec.version if latest_spec else None,
+            'latest_spec_uploaded_at': latest_spec.created_at if latest_spec else None,
         }
         result.append(ApiProductResponse(**product_dict))
     
@@ -289,37 +306,72 @@ async def update_api_product(
     return ApiProductResponse(**product_dict)
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{product_id}")
 async def delete_api_product(
-    product_id: str,
+    product_id: UUID,
     tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Delete an API product."""
+    """Delete an API product (checks for related specs)"""
+    from avanamy.models.api_spec import ApiSpec
+    
     product = db.query(ApiProduct).filter(
         ApiProduct.id == product_id,
         ApiProduct.tenant_id == tenant_id
     ).first()
     
     if not product:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"API Product {product_id} not found"
-        )
+        raise HTTPException(status_code=404, detail="API product not found")
     
-    # Check if product has any API specs
-    from avanamy.models.api_spec import ApiSpec
-    has_specs = db.query(ApiSpec).filter(
+    # Check for related API specs
+    spec_count = db.query(ApiSpec).filter(
         ApiSpec.api_product_id == product_id
-    ).first()
+    ).count()
     
-    if has_specs:
+    if spec_count > 0:
+        # Return structured error that frontend can parse
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete API product with existing API specs. Delete specs first."
+            status_code=400,
+            detail={
+                "message": f"Cannot delete product with {spec_count} API spec(s). Delete specs first or archive the product instead.",
+                "related_count": spec_count,
+                "can_archive": True
+            }
         )
     
     db.delete(product)
     db.commit()
+    return {"message": "API product deleted successfully"}
+
+@router.patch("/{product_id}/status")
+async def update_product_status(
+    product_id: UUID,
+    status: str = Body(..., embed=True),
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """Update API product status"""
+    if status not in ['active', 'inactive', 'archived']:
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid status. Must be: active, inactive, or archived"
+        )
     
-    return None
+    product = db.query(ApiProduct).filter(
+        ApiProduct.id == product_id,
+        ApiProduct.tenant_id == tenant_id
+    ).first()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="API product not found")
+    
+    product.status = status
+    db.commit()
+    db.refresh(product)
+    
+    return {
+        "id": str(product.id),
+        "name": product.name,
+        "status": product.status,
+        "message": f"Product status updated to {status}"
+    }

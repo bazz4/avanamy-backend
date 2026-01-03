@@ -15,6 +15,7 @@ class ApiProduct(Base, AuditMixin):
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    status = Column(String, nullable=False, server_default="active")
 
     __table_args__ = (
         sa.UniqueConstraint(

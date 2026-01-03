@@ -46,7 +46,7 @@ markdown_gen_counter = safe_counter(
 )
 
 
-def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
+async def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
     """
     Generate Markdown + HTML documentation for the *current* version of a spec.
 
@@ -112,17 +112,19 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         enhancer = AIDocumentationEnhancer()
         if enhancer.is_enabled():
             logger.info("Enhancing documentation with AI for spec %s", spec.id)
-            import asyncio
             # Extract the spec's title from the OpenAPI schema
             spec_title = schema.get("info", {}).get("title", spec.name)
-            markdown = asyncio.run(enhancer.enhance_markdown(basic_markdown, schema, api_title=spec_title))
+            # ✅ FIX: Use await instead of asyncio.run()
+            markdown = await enhancer.enhance_markdown(basic_markdown, schema, api_title=spec_title)
         else:
             logger.info("AI enhancement disabled, using basic markdown")
             markdown = basic_markdown
 
         provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
         provider_slug = provider.slug
-        spec_slug = slugify_filename(spec.name)
+        # ✅ FIX: Strip extension to prevent double extensions
+        base_spec_name = spec.name.rsplit('.', 1)[0] if '.' in spec.name else spec.name
+        spec_slug = slugify_filename(base_spec_name)
 
         md_key = build_docs_markdown_path(
             tenant_slug=tenant.slug,
@@ -199,7 +201,7 @@ def generate_and_store_markdown_for_spec(db: Session, spec: ApiSpec):
         return md_key
 
 
-def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
+async def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
     """
     Regenerate docs for the current version of a spec *without* creating a new
     VersionHistory row. This is essentially an idempotent re-run of
@@ -209,7 +211,8 @@ def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
         span.set_attribute("spec.id", spec.id)
         logger.info("Regenerating documentation for spec_id=%s", spec.id)
 
-    md_key = generate_and_store_markdown_for_spec(db, spec)
+    # ✅ FIX: Await the async function
+    md_key = await generate_and_store_markdown_for_spec(db, spec)
 
     # Derive html_key from the same version/paths used above
     if md_key is None:
@@ -237,7 +240,9 @@ def regenerate_all_docs_for_spec(db: Session, spec: ApiSpec):
         return md_key, None
 
     provider_slug = provider.slug
-    spec_slug = slugify_filename(spec.name)
+    # ✅ FIX: Strip extension to prevent double extensions
+    base_spec_name = spec.name.rsplit('.', 1)[0] if '.' in spec.name else spec.name
+    spec_slug = slugify_filename(base_spec_name)
     spec_id = spec.id
 
     # -----------------------------
