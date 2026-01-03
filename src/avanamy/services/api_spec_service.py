@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def store_api_spec_file(
+async def store_api_spec_file(
     db: Session,
     file_bytes: bytes,
     filename: str,
@@ -82,7 +82,7 @@ def store_api_spec_file(
                 api_product_id,
                 existing_spec.id,
             )
-            return update_api_spec_file(
+            return await update_api_spec_file(
                 db,
                 spec=existing_spec,
                 file_bytes=file_bytes,
@@ -107,9 +107,13 @@ def store_api_spec_file(
         # --------------------------------------------------------------
         # 2. TEMP UPLOAD
         # --------------------------------------------------------------
+        base_name = name or filename
+        # Remove extension from base_name if present
+        base_name_without_ext = base_name.rsplit('.', 1)[0] if '.' in base_name else base_name
+
         temp_key = (
             f"tenants/{tenant_id}/specs/pending/"
-            f"{uuid4()}-{slugify_filename(name or filename)}{get_file_extension(filename)}"
+            f"{uuid4()}-{slugify_filename(base_name_without_ext)}{get_file_extension(filename)}"
         )
         _, temp_url = upload_bytes(temp_key, file_bytes, content_type=content_type)
 
@@ -133,7 +137,7 @@ def store_api_spec_file(
 
             # IMPORTANT: this is a policy decision
             # For now, reuse update flow
-            return update_api_spec_file(
+            return await update_api_spec_file(
                 db,
                 spec=existing_spec,
                 file_bytes=file_bytes,
@@ -191,7 +195,9 @@ def store_api_spec_file(
         # --------------------------------------------------------------
         provider = db.query(Provider).filter(Provider.id == product.provider_id).first()
         provider_slug = provider.slug
-        spec_slug = slugify_filename(spec.name)
+
+        base_spec_name = spec.name.rsplit('.', 1)[0] if '.' in spec.name else spec.name
+        spec_slug = slugify_filename(base_spec_name)
         ext = get_file_extension(filename)
 
         final_key = build_spec_upload_path(
@@ -225,6 +231,22 @@ def store_api_spec_file(
         db.commit()
 
         # --------------------------------------------------------------
+        # 6.5. Store original spec artifact reference
+        # --------------------------------------------------------------
+        try:
+            from avanamy.services.original_spec_artifact_service import store_original_spec_artifact
+            
+            store_original_spec_artifact(
+                db,
+                tenant_id=tenant.id,
+                api_spec_id=spec.id,
+                version_history_id=vh.id,
+                s3_path=final_key,
+            )
+        except Exception:
+            logger.exception("Failed storing original spec artifact for spec %s", spec.id)
+
+        # --------------------------------------------------------------
         # 7. Generate normalized spec artifact
         # --------------------------------------------------------------
         try:
@@ -248,13 +270,13 @@ def store_api_spec_file(
         # 8. Generate docs for v1
         # --------------------------------------------------------------
         try:
-            generate_and_store_markdown_for_spec(db, spec)
+            await generate_and_store_markdown_for_spec(db, spec)
         except Exception:
             logger.exception("Failed generating docs for initial version of spec %s", spec.id)
 
         return spec
 
-def update_api_spec_file(
+async def update_api_spec_file(
     db: Session,
     *,
     spec: ApiSpec,
@@ -456,7 +478,7 @@ def update_api_spec_file(
             with tracer.start_as_current_span("service.generate_docs_update") as docs_span:
                 docs_span.set_attribute("spec.id", spec.id)
                 # Use the same helper; it will use the current VersionHistory version
-                regenerate_all_docs_for_spec(db, spec)
+                await regenerate_all_docs_for_spec(db, spec)
             logger.info("Finished documentation regeneration for spec_id=%s", spec.id)
         except Exception:
             logger.exception(
