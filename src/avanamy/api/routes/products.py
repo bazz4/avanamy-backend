@@ -14,6 +14,7 @@ from avanamy.db.database import get_db
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
 from avanamy.models.api_spec import ApiSpec
+from avanamy.services.api_product_delete_service import delete_api_product_fully
 from avanamy.auth.clerk import get_current_tenant_id
 
 from opentelemetry import trace
@@ -371,42 +372,42 @@ async def update_api_product(
     return ApiProductResponse(**product_dict)
 
 
-@router.delete("/{product_id}")
-async def delete_api_product(
-    product_id: UUID,
-    tenant_id: str = Depends(get_current_tenant_id),
-    db: Session = Depends(get_db),
-):
-    """Delete an API product (checks for related specs)"""
-    from avanamy.models.api_spec import ApiSpec
+# @router.delete("/{product_id}")
+# async def delete_api_product(
+#     product_id: UUID,
+#     tenant_id: str = Depends(get_current_tenant_id),
+#     db: Session = Depends(get_db),
+# ):
+#     """Delete an API product (checks for related specs)"""
+#     from avanamy.models.api_spec import ApiSpec
     
-    product = db.query(ApiProduct).filter(
-        ApiProduct.id == product_id,
-        ApiProduct.tenant_id == tenant_id
-    ).first()
+#     product = db.query(ApiProduct).filter(
+#         ApiProduct.id == product_id,
+#         ApiProduct.tenant_id == tenant_id
+#     ).first()
     
-    if not product:
-        raise HTTPException(status_code=404, detail="API product not found")
+#     if not product:
+#         raise HTTPException(status_code=404, detail="API product not found")
     
-    # Check for related API specs
-    spec_count = db.query(ApiSpec).filter(
-        ApiSpec.api_product_id == product_id
-    ).count()
+#     # Check for related API specs
+#     spec_count = db.query(ApiSpec).filter(
+#         ApiSpec.api_product_id == product_id
+#     ).count()
     
-    if spec_count > 0:
-        # Return structured error that frontend can parse
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": f"Cannot delete product with {spec_count} API spec(s). Delete specs first or archive the product instead.",
-                "related_count": spec_count,
-                "can_archive": True
-            }
-        )
+#     if spec_count > 0:
+#         # Return structured error that frontend can parse
+#         raise HTTPException(
+#             status_code=400,
+#             detail={
+#                 "message": f"Cannot delete product with {spec_count} API spec(s). Delete specs first or archive the product instead.",
+#                 "related_count": spec_count,
+#                 "can_archive": True
+#             }
+#         )
     
-    db.delete(product)
-    db.commit()
-    return {"message": "API product deleted successfully"}
+#     db.delete(product)
+#     db.commit()
+#     return {"message": "API product deleted successfully"}
 
 @router.patch("/{product_id}/status")
 async def update_product_status(
@@ -534,3 +535,15 @@ async def get_product_specs(
                 for spec in specs
             ]
         }
+    
+@router.delete("/{api_product_id}", status_code=204)
+def delete_api_product(
+    api_product_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    delete_api_product_fully(
+        db=db,
+        tenant_id=tenant_id,
+        api_product_id=api_product_id,
+    )

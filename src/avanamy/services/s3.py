@@ -80,3 +80,35 @@ def delete_s3_object(key: str):
 
 def generate_s3_url(key: str) -> str:
     return f"s3://{AWS_BUCKET}/{key}"
+
+def delete_s3_prefix(prefix: str):
+    """
+    Delete all S3 objects under a given prefix.
+    Used for destructive operations like deleting an API product.
+    """
+    paginator = _s3_client.get_paginator("list_objects_v2")
+
+    pages = paginator.paginate(
+        Bucket=AWS_BUCKET,
+        Prefix=prefix
+    )
+
+    objects_to_delete = []
+
+    for page in pages:
+        for obj in page.get("Contents", []):
+            objects_to_delete.append({"Key": obj["Key"]})
+
+            # Batch delete every 1000 objects (S3 limit)
+            if len(objects_to_delete) == 1000:
+                _s3_client.delete_objects(
+                    Bucket=AWS_BUCKET,
+                    Delete={"Objects": objects_to_delete},
+                )
+                objects_to_delete.clear()
+
+    if objects_to_delete:
+        _s3_client.delete_objects(
+            Bucket=AWS_BUCKET,
+            Delete={"Objects": objects_to_delete},
+        )
