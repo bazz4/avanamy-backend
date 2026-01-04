@@ -4,6 +4,7 @@ API Product CRUD endpoints.
 from typing import List
 from datetime import datetime
 from uuid import UUID
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
@@ -14,6 +15,27 @@ from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
 from avanamy.models.api_spec import ApiSpec
 from avanamy.auth.clerk import get_current_tenant_id
+
+from opentelemetry import trace
+from prometheus_client import Histogram, Counter
+
+logger = logging.getLogger(__name__)
+
+# After existing imports
+tracer = trace.get_tracer(__name__)
+
+# Add metrics
+product_list_duration = Histogram(
+    'product_list_duration_seconds',
+    'Time to list API products with enrichment',
+    ['tenant_id']
+)
+
+product_spec_count = Counter(
+    'product_spec_count_total',
+    'Total number of specs per product',
+    ['tenant_id', 'provider_id', 'has_specs']
+)
 
 router = APIRouter(prefix="/api-products", tags=["api-products"])
 
@@ -47,13 +69,15 @@ class ApiProductResponse(BaseModel):
     updated_at: str | None = None
     created_by_user_id: str | None = None
     updated_by_user_id: str | None = None
-    # Include provider info
+    # Provider info
     provider_name: str | None = None
     provider_slug: str | None = None
-    # ADD THESE LINES:
+    # Latest spec info
     latest_spec_id: str | None = None
     latest_spec_version: str | None = None
     latest_spec_uploaded_at: str | None = None
+   
+    spec_count: int = 0
 
     class Config:
         from_attributes = True
@@ -82,46 +106,87 @@ async def list_api_products(
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
-    """List all API products for the current tenant, optionally filtered by provider."""
-    query = db.query(ApiProduct).filter(ApiProduct.tenant_id == tenant_id)
-    
-    if provider_id:
-        query = query.filter(ApiProduct.provider_id == provider_id)
-    
-    products = query.join(ApiProduct.provider).order_by(
-        Provider.name, 
-        ApiProduct.name
-    ).all()
+    """List all API products for the current tenant with spec info."""
+    with tracer.start_as_current_span("list_api_products") as span:
+        span.set_attribute("tenant_id", tenant_id)
+        span.set_attribute("has_provider_filter", provider_id is not None)
         
-    # Enrich with provider info
-    result = []
-    for product in products:
-        # Get latest spec for this product
-        latest_spec = db.query(ApiSpec).filter(
-            ApiSpec.api_product_id == product.id
-        ).order_by(ApiSpec.created_at.desc()).first()
+        import time
+        start_time = time.time()
         
-        product_dict = {
-            'id': product.id,
-            'tenant_id': product.tenant_id,
-            'provider_id': product.provider_id,
-            'name': product.name,
-            'slug': product.slug,
-            'description': product.description,
-            'created_at': product.created_at,
-            'updated_at': product.updated_at,
-            'created_by_user_id': product.created_by_user_id,
-            'updated_by_user_id': product.updated_by_user_id,
-            'provider_name': product.provider.name if product.provider else None,
-            'provider_slug': product.provider.slug if product.provider else None,
-            # Add latest spec info
-            'latest_spec_id': latest_spec.id if latest_spec else None,
-            'latest_spec_version': latest_spec.version if latest_spec else None,
-            'latest_spec_uploaded_at': latest_spec.created_at if latest_spec else None,
-        }
-        result.append(ApiProductResponse(**product_dict))
-    
-    return result
+        query = db.query(ApiProduct).filter(ApiProduct.tenant_id == tenant_id)
+        
+        if provider_id:
+            query = query.filter(ApiProduct.provider_id == provider_id)
+            span.set_attribute("provider_id", provider_id)
+        
+        # Sort by provider name, then product name
+        products = query.join(ApiProduct.provider).order_by(
+            Provider.name, 
+            ApiProduct.name
+        ).all()
+        
+        span.set_attribute("product_count", len(products))
+        
+        # Enrich with provider info, latest spec, and spec count
+        from avanamy.models.api_spec import ApiSpec
+        from sqlalchemy import func
+        
+        result = []
+        for product in products:
+            # Get latest spec for this product
+            latest_spec = db.query(ApiSpec).filter(
+                ApiSpec.api_product_id == product.id
+            ).order_by(ApiSpec.created_at.desc()).first()
+            
+            # Get total spec count
+            spec_count = db.query(func.count(ApiSpec.id)).filter(
+                ApiSpec.api_product_id == product.id
+            ).scalar() or 0
+            
+            # Record metrics
+            product_spec_count.labels(
+                tenant_id=tenant_id,
+                provider_id=str(product.provider_id),
+                has_specs='true' if spec_count > 0 else 'false'
+            ).inc(spec_count)
+            
+            product_dict = {
+                'id': product.id,
+                'tenant_id': product.tenant_id,
+                'provider_id': product.provider_id,
+                'name': product.name,
+                'slug': product.slug,
+                'description': product.description,
+                'created_at': product.created_at,
+                'updated_at': product.updated_at,
+                'created_by_user_id': product.created_by_user_id,
+                'updated_by_user_id': product.updated_by_user_id,
+                'provider_name': product.provider.name if product.provider else None,
+                'provider_slug': product.provider.slug if product.provider else None,
+                'latest_spec_id': latest_spec.id if latest_spec else None,
+                'latest_spec_version': latest_spec.version if latest_spec else None,
+                'latest_spec_uploaded_at': latest_spec.created_at if latest_spec else None,
+                'spec_count': spec_count,
+            }
+            result.append(ApiProductResponse(**product_dict))
+        
+        # Record timing
+        duration = time.time() - start_time
+        product_list_duration.labels(tenant_id=tenant_id).observe(duration)
+        span.set_attribute("duration_seconds", duration)
+        
+        logger.info(
+            "Listed API products",
+            extra={
+                "tenant_id": tenant_id,
+                "product_count": len(result),
+                "duration_seconds": duration,
+                "has_filter": provider_id is not None
+            }
+        )
+        
+        return result
 
 
 @router.get("/{product_id}", response_model=ApiProductResponse)
@@ -375,3 +440,97 @@ async def update_product_status(
         "status": product.status,
         "message": f"Product status updated to {status}"
     }
+
+@router.get("/{product_id}/specs/summary")
+async def get_product_specs_summary(
+    product_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """Get summary of specs for a product (for breadcrumbs/navigation)."""
+    with tracer.start_as_current_span("get_product_specs_summary") as span:
+        span.set_attribute("product_id", product_id)
+        span.set_attribute("tenant_id", tenant_id)
+        
+        from avanamy.models.api_spec import ApiSpec
+        from sqlalchemy import func
+        
+        product = db.query(ApiProduct).filter(
+            ApiProduct.id == product_id,
+            ApiProduct.tenant_id == tenant_id
+        ).first()
+        
+        if not product:
+            raise HTTPException(
+                status_code=404,
+                detail=f"API Product {product_id} not found"
+            )
+        
+        # Get all specs for this product
+        specs = db.query(ApiSpec).filter(
+            ApiSpec.api_product_id == product_id
+        ).order_by(ApiSpec.created_at.desc()).all()
+        
+        spec_count = len(specs)
+        span.set_attribute("spec_count", spec_count)
+        
+        return {
+            "product_id": str(product.id),
+            "product_name": product.name,
+            "product_slug": product.slug,
+            "provider_id": str(product.provider_id),
+            "provider_name": product.provider.name if product.provider else None,
+            "spec_count": spec_count,
+            "specs": [
+                {
+                    "id": str(spec.id),
+                    "name": spec.name,
+                    "version": spec.version,
+                    "created_at": spec.created_at.isoformat() if spec.created_at else None,
+                }
+                for spec in specs
+            ]
+        }
+    
+@router.get("/products/{product_id}/specs")
+async def get_product_specs(
+    product_id: str,
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """Get all specs for a specific product."""
+    with tracer.start_as_current_span("get_product_specs") as span:
+        from avanamy.models.api_spec import ApiSpec
+        from avanamy.models.api_product import ApiProduct
+        
+        # Verify product exists and belongs to tenant
+        product = db.query(ApiProduct).filter(
+            ApiProduct.id == product_id,
+            ApiProduct.tenant_id == tenant_id
+        ).first()
+        
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        specs = db.query(ApiSpec).filter(
+            ApiSpec.api_product_id == product_id
+        ).order_by(ApiSpec.created_at.desc()).all()
+        
+        span.set_attribute("spec_count", len(specs))
+        
+        return {
+            "product": {
+                "id": str(product.id),
+                "name": product.name,
+                "provider_name": product.provider.name if product.provider else None,
+            },
+            "specs": [
+                {
+                    "id": str(spec.id),
+                    "name": spec.name,
+                    "version": spec.version,
+                    "created_at": spec.created_at.isoformat(),
+                }
+                for spec in specs
+            ]
+        }
