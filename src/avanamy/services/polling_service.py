@@ -181,9 +181,9 @@ class PollingService:
         ).first()
 
         if not api_spec:
-            # If no spec exists yet, create it
+            # If no spec exists yet, create it (this creates VersionHistory v1)
             from avanamy.services.api_spec_service import store_api_spec_file
-            
+
             api_spec = await store_api_spec_file(
                 db=self.db,
                 file_bytes=spec_content.encode(),
@@ -192,14 +192,19 @@ class PollingService:
                 api_product_id=str(watched_api.api_product_id),
                 provider_id=str(watched_api.provider_id),
             )
-            
+
             # Link the WatchedAPI to the newly created spec
             watched_api.api_spec_id = api_spec.id
             self.db.commit()
-            
+
             logger.info(f"Created new ApiSpec {api_spec.id} for WatchedAPI {watched_api.id}")
-                
-        # Call existing service to handle the upload
+
+            # IMPORTANT: Bootstrap case
+            # store_api_spec_file already created VersionHistory v1 and stored artifacts.
+            # Do NOT immediately call update_api_spec_file, or we'd create v2 on first poll.
+            return 1
+
+        # Call existing service to handle the upload (this creates VersionHistory vN+1)
         # update_api_spec_file expects spec object, file_bytes, and tenant_id
         await update_api_spec_file(
             db=self.db,
@@ -209,18 +214,19 @@ class PollingService:
             tenant_id=watched_api.tenant_id,
             description=f"Auto-detected change from {watched_api.spec_url}"
         )
-        
+
         # Get the latest version for this spec
         from avanamy.models.version_history import VersionHistory
-        
+
         latest_version = self.db.query(VersionHistory).filter(
             VersionHistory.api_spec_id == api_spec.id
         ).order_by(VersionHistory.version.desc()).first()
-        
+
         if latest_version:
             return latest_version.version
         else:
             return 1
+
 
     def _extract_filename(self, url: str) -> str:
         """Extract a reasonable filename from the URL."""
