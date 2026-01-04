@@ -83,32 +83,51 @@ def generate_s3_url(key: str) -> str:
 
 def delete_s3_prefix(prefix: str):
     """
-    Delete all S3 objects under a given prefix.
-    Used for destructive operations like deleting an API product.
+    Delete all S3 objects under a prefix.
     """
-    paginator = _s3_client.get_paginator("list_objects_v2")
+    import boto3
+    import logging
 
-    pages = paginator.paginate(
-        Bucket=AWS_BUCKET,
-        Prefix=prefix
+    logger = logging.getLogger(__name__)
+
+    s3 = boto3.client("s3")
+
+    bucket = AWS_BUCKET  # IMPORTANT: use the same constant as upload
+
+    logger.warning("S3 DELETE DEBUG")
+    logger.warning("Bucket: %s", bucket)
+    logger.warning("Prefix: %s", prefix)
+
+    paginator = s3.get_paginator("list_objects_v2")
+
+    keys_to_delete = []
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        contents = page.get("Contents", [])
+        for obj in contents:
+            key = obj["Key"]
+            keys_to_delete.append({"Key": key})
+
+    if not keys_to_delete:
+        logger.error("NO OBJECTS FOUND FOR PREFIX — DELETE WILL DO NOTHING")
+        return
+
+    logger.warning("Deleting %d S3 objects", len(keys_to_delete))
+
+    response = s3.delete_objects(
+        Bucket=bucket,
+        Delete={
+            "Objects": keys_to_delete,
+            "Quiet": False,
+        },
     )
 
-    objects_to_delete = []
+    deleted = response.get("Deleted", [])
+    errors = response.get("Errors", [])
 
-    for page in pages:
-        for obj in page.get("Contents", []):
-            objects_to_delete.append({"Key": obj["Key"]})
+    logger.warning("S3 deleted %d objects", len(deleted))
 
-            # Batch delete every 1000 objects (S3 limit)
-            if len(objects_to_delete) == 1000:
-                _s3_client.delete_objects(
-                    Bucket=AWS_BUCKET,
-                    Delete={"Objects": objects_to_delete},
-                )
-                objects_to_delete.clear()
-
-    if objects_to_delete:
-        _s3_client.delete_objects(
-            Bucket=AWS_BUCKET,
-            Delete={"Objects": objects_to_delete},
-        )
+    if errors:
+        logger.error("Errors deleting some S3 objects:")
+        for err in errors:
+            logger.error("  %s", err)

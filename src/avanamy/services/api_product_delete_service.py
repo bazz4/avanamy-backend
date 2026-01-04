@@ -107,7 +107,7 @@ def delete_api_product_fully(
         s3_prefix = (
             f"tenants/{tenant.slug}/"
             f"providers/{provider.slug}/"
-            f"products/{product.slug}/"
+            f"api_products/{product.slug}/"
         )
 
         logger.warning("Deleting S3 prefix: %s", s3_prefix)
