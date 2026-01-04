@@ -190,15 +190,15 @@ class ApiSpecRepository:
         db: Session,
         *,
         tenant_id: str,
-        provider_id: UUID,
+        provider_id: UUID,  # Keep parameter for backwards compatibility
         api_product_id: UUID,
     ) -> ApiSpec | None:
         return (
             db.query(ApiSpec)
             .filter(
                 ApiSpec.tenant_id == tenant_id,
-                ApiSpec.provider_id == provider_id,
                 ApiSpec.api_product_id == api_product_id,
+                # Removed provider_id check - one spec per product
             )
             .one_or_none()
         )

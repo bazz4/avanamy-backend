@@ -14,6 +14,7 @@ from avanamy.models.api_spec import ApiSpec
 from avanamy.models.version_history import VersionHistory
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.alert_configuration import AlertConfiguration
+from avanamy.db.database import Base
 
 
 def test_delete_api_product_fully_deletes_all_related_data(db_session, tenant, provider):
