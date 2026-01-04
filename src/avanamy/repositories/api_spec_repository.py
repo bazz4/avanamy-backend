@@ -189,7 +189,7 @@ class ApiSpecRepository:
     def get_by_product(
         db: Session,
         *,
-        tenant_id: UUID,
+        tenant_id: str,
         provider_id: UUID,
         api_product_id: UUID,
     ) -> ApiSpec | None:

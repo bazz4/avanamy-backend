@@ -60,7 +60,7 @@ class UpdateWatchedAPIRequest(BaseModel):
 class WatchedAPIResponse(BaseModel):
     """Response model for watched API."""
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     provider_id: UUID
     api_product_id: UUID
     api_spec_id: Optional[UUID] = None  # NEW
@@ -84,7 +84,7 @@ class WatchedAPIResponse(BaseModel):
 @router.post("", response_model=WatchedAPIResponse, status_code=status.HTTP_201_CREATED)
 def create_watched_api(
     request: CreateWatchedAPIRequest,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
@@ -117,7 +117,7 @@ def create_watched_api(
 
 @router.get("", response_model=List[WatchedAPIResponse])
 def list_watched_apis(
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """List all watched APIs for the current tenant."""
@@ -164,7 +164,7 @@ def list_watched_apis(
 @router.get("/{watched_api_id}", response_model=WatchedAPIResponse)
 def get_watched_api(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Get details of a specific watched API."""
@@ -187,7 +187,7 @@ def get_watched_api(
 def update_watched_api(
     watched_api_id: UUID,
     request: UpdateWatchedAPIRequest,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
@@ -229,7 +229,7 @@ def update_watched_api(
 @router.delete("/{watched_api_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_watched_api(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Remove a watched API (soft delete by setting status to 'deleted')."""
@@ -255,7 +255,7 @@ def delete_watched_api(
 @router.post("/{watched_api_id}/poll", response_model=dict)
 async def trigger_poll(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """

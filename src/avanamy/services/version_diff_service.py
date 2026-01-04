@@ -28,7 +28,7 @@ def compute_and_store_diff(
     db: Session,
     *,
     spec_id: UUID,
-    tenant_id: UUID,
+    tenant_id: str,
     current_version: int,
     new_normalized_spec: dict,
 ) -> None:
@@ -177,7 +177,7 @@ def _load_normalized_spec_for_version(
     db: Session,
     *,
     spec_id: UUID,
-    tenant_id: UUID,
+    tenant_id: str,
     version: int,
 ) -> dict | None:
     """

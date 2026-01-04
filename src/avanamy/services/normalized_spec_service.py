@@ -35,7 +35,7 @@ def generate_and_store_normalized_spec(
     spec_id: UUID,
     spec_slug: str,
     parsed_spec: dict,
-    tenant_id: UUID,
+    tenant_id: str,
 ) -> str:
     """
     Generate normalized spec and store as S3 artifact.

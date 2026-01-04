@@ -22,7 +22,7 @@ tracer = trace.get_tracer(__name__)
 def store_original_spec_artifact(
     db: Session,
     *,
-    tenant_id: UUID,
+    tenant_id: str,
     api_spec_id: UUID,
     version_history_id: int,
     s3_path: str,
