@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from avanamy.db.database import SessionLocal
-from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
@@ -52,7 +52,7 @@ class SpecDocsOut(BaseModel):
 )
 def get_docs_for_spec(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """

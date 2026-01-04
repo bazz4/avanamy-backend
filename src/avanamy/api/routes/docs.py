@@ -16,7 +16,7 @@ from avanamy.repositories.documentation_artifact_repository import (
     DocumentationArtifactRepository,
 )
 from avanamy.services.s3 import download_bytes
-from avanamy.api.dependencies.tenant import get_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.models.api_spec import ApiSpec
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def get_db():
 @router.get("/specs/{spec_id}", response_class=PlainTextResponse)
 def get_original_spec(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     """
@@ -103,10 +103,10 @@ def get_original_spec(
 # ========================================================================
 
 # Get raw markdown
-@router.get("/docs/{spec_id}/markdown", response_class=PlainTextResponse)
+@router.get("/{spec_id}/markdown", response_class=PlainTextResponse)
 def get_markdown_doc(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     markdown_requests.inc()
@@ -130,10 +130,10 @@ def get_markdown_doc(
         return download_bytes(artifact.s3_path).decode("utf-8")
 
 # Get generated HTML
-@router.get("/docs/{spec_id}/html", response_class=HTMLResponse)
+@router.get("/{spec_id}/html", response_class=HTMLResponse)
 def get_docs_html(
     spec_id: UUID,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
     html_requests.inc()
@@ -230,7 +230,7 @@ async def get_version_documentation(
 async def get_available_documentation_formats(
     spec_id: UUID,
     version_id: int,
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """Check which documentation formats are available for a version."""
@@ -285,7 +285,7 @@ async def get_available_documentation_formats(
 async def get_latest_documentation(
     spec_id: UUID,
     format: str = "html",
-    tenant_id: str = Depends(get_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """

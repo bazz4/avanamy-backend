@@ -19,6 +19,7 @@ from avanamy.models.endpoint_health import EndpointHealth
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.provider import Provider
 from avanamy.models.api_product import ApiProduct
+from avanamy.auth.clerk import get_current_tenant_id
 from opentelemetry import trace
 
 router = APIRouter(tags=["endpoint-health"])
@@ -66,19 +67,12 @@ class WatchedAPIHealthSummary(BaseModel):
     uptime_percentage: float
     last_checked: datetime
 
-
-# Dependency to get tenant_id
-def get_tenant_id(x_tenant_id: UUID = Depends(lambda: UUID("11111111-1111-1111-1111-111111111111"))):
-    """Get tenant ID from request. For MVP, hardcoded."""
-    return x_tenant_id
-
-
 # Endpoints
 
 @router.get("/watched-apis/{watched_api_id}/health", response_model=List[EndpointHealthResponse])
 def get_endpoint_health(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: UUID = Depends(get_current_tenant_id),
     limit: int = Query(100, description="Number of recent checks per endpoint", le=1000),
     db: Session = Depends(get_db)
 ):
@@ -111,7 +105,7 @@ def get_endpoint_health(
 @router.get("/watched-apis/{watched_api_id}/health/summary", response_model=List[EndpointHealthSummary])
 def get_endpoint_health_summary(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: UUID = Depends(get_current_tenant_id),
     hours: int = Query(24, description="Time window in hours for statistics"),
     db: Session = Depends(get_db)
 ):
@@ -185,7 +179,7 @@ def get_endpoint_health_summary(
 
 @router.get("/health/summary", response_model=List[WatchedAPIHealthSummary])
 def get_all_health_summary(
-    tenant_id: UUID = Depends(get_tenant_id),
+    tenant_id: UUID = Depends(get_current_tenant_id),
     hours: int = Query(24, description="Time window in hours for statistics"),
     db: Session = Depends(get_db)
 ):
