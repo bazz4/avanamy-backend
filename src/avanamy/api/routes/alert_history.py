@@ -30,7 +30,7 @@ tracer = trace.get_tracer(__name__)
 class AlertHistoryResponse(BaseModel):
     """Response model for alert history."""
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     watched_api_id: UUID
     alert_config_id: UUID
     provider_name: Optional[str] = None

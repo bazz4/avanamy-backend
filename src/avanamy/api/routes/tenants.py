@@ -47,7 +47,7 @@ def list_tenants(db: Session = Depends(get_db)):
 # GET /tenants/{tenant_id}
 # --------------------------
 @router.get("/{tenant_id}", response_model=TenantOut)
-def get_tenant(tenant_id: UUID, db: Session = Depends(get_db)):
+def get_tenant(tenant_id: str, db: Session = Depends(get_db)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
 
     if not tenant:

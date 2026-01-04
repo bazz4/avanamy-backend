@@ -379,7 +379,10 @@ async def update_api_spec_file(
             return None
 
         provider_slug = provider.slug
-        spec_slug = slugify_filename(spec.name)
+
+        base_spec_name = spec.name.rsplit('.', 1)[0] if '.' in spec.name else spec.name
+        spec_slug = slugify_filename(base_spec_name)
+
         ext = get_file_extension(filename)
 
         final_key = build_spec_upload_path(

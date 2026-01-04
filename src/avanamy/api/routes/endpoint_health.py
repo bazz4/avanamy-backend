@@ -72,7 +72,7 @@ class WatchedAPIHealthSummary(BaseModel):
 @router.get("/watched-apis/{watched_api_id}/health", response_model=List[EndpointHealthResponse])
 def get_endpoint_health(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     limit: int = Query(100, description="Number of recent checks per endpoint", le=1000),
     db: Session = Depends(get_db)
 ):
@@ -105,7 +105,7 @@ def get_endpoint_health(
 @router.get("/watched-apis/{watched_api_id}/health/summary", response_model=List[EndpointHealthSummary])
 def get_endpoint_health_summary(
     watched_api_id: UUID,
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     hours: int = Query(24, description="Time window in hours for statistics"),
     db: Session = Depends(get_db)
 ):
@@ -179,7 +179,7 @@ def get_endpoint_health_summary(
 
 @router.get("/health/summary", response_model=List[WatchedAPIHealthSummary])
 def get_all_health_summary(
-    tenant_id: UUID = Depends(get_current_tenant_id),
+    tenant_id: str = Depends(get_current_tenant_id),
     hours: int = Query(24, description="Time window in hours for statistics"),
     db: Session = Depends(get_db)
 ):

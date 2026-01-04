@@ -174,14 +174,40 @@ class PollingService:
         # Determine filename based on URL
         filename = self._extract_filename(watched_api.spec_url)
         
+       # Fetch the ApiSpec object (required by update_api_spec_file)
+        from avanamy.models.api_spec import ApiSpec
+        api_spec = self.db.query(ApiSpec).filter(
+            ApiSpec.id == watched_api.api_spec_id
+        ).first()
+
+        if not api_spec:
+            # If no spec exists yet, create it
+            from avanamy.services.api_spec_service import store_api_spec_file
+            
+            api_spec = await store_api_spec_file(
+                db=self.db,
+                file_bytes=spec_content.encode(),
+                filename=filename,
+                tenant_id=watched_api.tenant_id,
+                api_product_id=str(watched_api.api_product_id),
+                provider_id=str(watched_api.provider_id),
+            )
+            
+            # Link the WatchedAPI to the newly created spec
+            watched_api.api_spec_id = api_spec.id
+            self.db.commit()
+            
+            logger.info(f"Created new ApiSpec {api_spec.id} for WatchedAPI {watched_api.id}")
+                
         # Call existing service to handle the upload
-        # Note: update_api_spec_file expects spec_id, not provider/product IDs
-        api_spec = update_api_spec_file(
+        # update_api_spec_file expects spec object, file_bytes, and tenant_id
+        await update_api_spec_file(
             db=self.db,
-            spec_id=watched_api.api_spec_id,  # ← Use spec_id instead
+            spec=api_spec,
+            file_bytes=spec_content.encode(),
             filename=filename,
-            raw_content=spec_content.encode(),
-            changelog=f"Auto-detected change from {watched_api.spec_url}"
+            tenant_id=watched_api.tenant_id,
+            description=f"Auto-detected change from {watched_api.spec_url}"
         )
         
         # Get the latest version for this spec

@@ -64,7 +64,7 @@ class UpdateAlertConfigRequest(BaseModel):
 class AlertConfigResponse(BaseModel):
     """Response model for alert configuration."""
     id: UUID
-    tenant_id: UUID
+    tenant_id: str
     watched_api_id: UUID
     alert_type: str
     destination: str
