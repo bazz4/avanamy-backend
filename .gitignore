@@ -36,3 +36,8 @@ tmp/
 .db
 
 github-private-key.pem
+
+*.pem
+*.key
+
+avanamy-dev.2026-01-05.private-key.pem
