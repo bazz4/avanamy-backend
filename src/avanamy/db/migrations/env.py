@@ -9,6 +9,7 @@ import avanamy.models.api_spec
 import avanamy.models.documentation_artifact
 import avanamy.models.generation_job
 import avanamy.models.version_history
+from avanamy.models.code_repository import CodeRepository, CodeRepoEndpointUsage  
 
 from avanamy.db.database import Base
 target_metadata = Base.metadata
