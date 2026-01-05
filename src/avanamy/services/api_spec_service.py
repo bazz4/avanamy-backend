@@ -489,4 +489,24 @@ async def update_api_spec_file(
                 spec.id,
             )
 
+        # --------------------------------------------------------------------
+        # 7. Update WatchedAPI hash if this spec is being watched
+        # --------------------------------------------------------------------
+        from avanamy.models.watched_api import WatchedAPI
+        import hashlib
+        
+        watched_api = db.query(WatchedAPI).filter(
+            WatchedAPI.api_spec_id == spec.id
+        ).first()
+        
+        if watched_api:
+            # Compute hash of the new content
+            new_hash = hashlib.sha256(file_bytes).hexdigest()
+            watched_api.last_spec_hash = new_hash
+            db.commit()
+            logger.info(
+                f"Updated watched API hash after manual upload: "
+                f"watched_api_id={watched_api.id} new_hash={new_hash}"
+            )
+
         return spec
