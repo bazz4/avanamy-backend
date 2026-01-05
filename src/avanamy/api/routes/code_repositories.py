@@ -278,7 +278,7 @@ def delete_code_repository(
 
 
 @router.post("/{code_repository_id}/scan", status_code=202)
-def trigger_scan(
+async def trigger_scan(
     code_repository_id: UUID,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -287,10 +287,7 @@ def trigger_scan(
     """
     Trigger a scan of the code repository.
     
-    This is a placeholder - actual GitHub cloning and scanning
-    will be implemented in Phase 2B with GitHub OAuth.
-    
-    For now, returns 202 Accepted.
+    Clones from GitHub and scans for API endpoint usage.
     """
     with tracer.start_as_current_span("api.trigger_scan"):
         code_repository = CodeRepoRepository.get_by_id(db, code_repository_id)
@@ -301,8 +298,34 @@ def trigger_scan(
         if code_repository.tenant_id != tenant_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # TODO: Implement actual scanning in Phase 2B
-        # For now, just update status
+        # Check if we have an access token
+        if not code_repository.access_token_encrypted:
+            raise HTTPException(
+                status_code=400,
+                detail="No GitHub access token. Please connect via GitHub OAuth first."
+            )
+        
+        # Decrypt access token
+        from avanamy.services.encryption_service import get_encryption_service
+        from avanamy.services.code_repo_scanner_service import CodeRepoScannerService
+        
+        encryption_service = get_encryption_service()
+        access_token = encryption_service.decrypt(code_repository.access_token_encrypted)
+        
+        # Trigger scan in background
+        async def scan_task():
+            scanner_service = CodeRepoScannerService(db)
+            try:
+                await scanner_service.scan_repository_from_github(
+                    code_repository_id=code_repository_id,
+                    access_token=access_token
+                )
+            except Exception as e:
+                logger.exception(f"Background scan failed: {e}")
+        
+        background_tasks.add_task(scan_task)
+        
+        # Update status immediately
         CodeRepoRepository.update(db, code_repository, scan_status="pending")
         
         logger.info(f"Scan triggered for code repository: {code_repository_id}")

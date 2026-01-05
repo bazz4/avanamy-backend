@@ -34,3 +34,5 @@ Thumbs.db
 tmp/
 
 .db
+
+github-private-key.pem

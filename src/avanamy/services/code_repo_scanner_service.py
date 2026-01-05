@@ -9,6 +9,7 @@ Orchestrates scanning code repositories for API endpoint usage.
 from __future__ import annotations
 import logging
 import os
+import shutil
 from datetime import datetime, timezone
 from uuid import UUID
 from sqlalchemy.orm import Session
@@ -222,3 +223,85 @@ class CodeRepoScannerService:
             )
             
             return result
+        
+    async def scan_repository_from_github(
+        self,
+        code_repository_id: UUID,
+        access_token: str,
+    ) -> dict:
+        """
+        Clone a GitHub repository and scan it for API endpoint usage.
+        
+        Args:
+            code_repository_id: CodeRepository UUID
+            access_token: Decrypted GitHub access token
+            
+        Returns:
+            Scan results summary
+        """
+        import tempfile
+        import shutil
+        from avanamy.services.github_api_service import GitHubAPIService
+        
+        with tracer.start_as_current_span("service.scan_repository_from_github") as span:
+            span.set_attribute("code_repository.id", str(code_repository_id))
+            
+            # Get code repository record
+            code_repository = self.db.query(CodeRepository).filter(
+                CodeRepository.id == code_repository_id
+            ).first()
+            
+            if not code_repository:
+                raise ValueError(f"CodeRepository {code_repository_id} not found")
+            
+            # Update status
+            code_repository.scan_status = "scanning"
+            self.db.commit()
+            
+            temp_dir = None
+            
+            try:
+                # Initialize GitHub API service
+                github_service = GitHubAPIService(access_token)
+                
+                # Create temporary directory for clone
+                temp_dir = tempfile.mkdtemp(prefix="avanamy_scan_")
+                
+                logger.info(f"Cloning repository: {code_repository.url}")
+                
+                # Clone repository
+                repo_path, commit_sha = github_service.clone_repository(
+                    code_repository.url,
+                    temp_dir
+                )
+                
+                logger.info(f"Repository cloned to {repo_path}, commit: {commit_sha}")
+                
+                # Scan the cloned repository
+                result = await self.scan_repository(
+                    code_repository_id=code_repository_id,
+                    repo_path=repo_path,
+                    commit_sha=commit_sha
+                )
+                
+                return result
+                
+            except Exception as e:
+                # Update code repository with error
+                code_repository.scan_status = "failed"
+                code_repository.last_scan_error = str(e)
+                self.db.commit()
+                
+                logger.exception(f"Scan failed for code_repository {code_repository_id}")
+                span.set_attribute("scan.error", str(e))
+                
+                raise
+                
+            finally:
+                # Clean up temporary directory
+                if temp_dir and os.path.exists(temp_dir):
+                    try:
+                        shutil.rmtree(temp_dir)
+                        logger.info(f"Cleaned up temporary directory: {temp_dir}")
+                    except Exception as e:
+                        logger.warning(f"Failed to clean up temp directory: {e}")
