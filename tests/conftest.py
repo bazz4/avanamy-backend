@@ -117,3 +117,43 @@ def client(db, override_auth):
         yield test_client
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def db_session(db):
+    """Compatibility fixture for tests expecting db_session."""
+    return db
+
+
+@pytest.fixture
+def tenant(db):
+    """Standalone tenant fixture for tests that don't use tenant_provider_product."""
+    from avanamy.models.tenant import Tenant
+
+    tenant = Tenant(
+        id="tenant_fixture",
+        name="Fixture Tenant",
+        slug="tenant-fixture",
+        is_organization=False,
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+
+@pytest.fixture
+def provider(db, tenant):
+    """Standalone provider fixture for tests that don't use tenant_provider_product."""
+    from avanamy.models.provider import Provider
+
+    provider = Provider(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Fixture Provider",
+        slug="provider-fixture",
+    )
+    db.add(provider)
+    db.commit()
+    db.refresh(provider)
+    return provider

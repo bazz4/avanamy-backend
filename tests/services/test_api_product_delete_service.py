@@ -39,6 +39,7 @@ def test_delete_api_product_fully_deletes_all_related_data(db_session, tenant, p
         api_product_id=product.id,
         provider_id=provider.id,
         name="test-api.yaml",
+        original_file_s3_path="s3://bucket/test-api.yaml",
     )
     db_session.add(spec)
     db_session.commit()
@@ -60,7 +61,10 @@ def test_delete_api_product_fully_deletes_all_related_data(db_session, tenant, p
     db_session.commit()
 
     alert = AlertConfiguration(
+        tenant_id=tenant.id,
         watched_api_id=watched.id,
+        alert_type="email",
+        destination="alerts@example.com",
         enabled=True,
     )
     db_session.add(alert)
@@ -90,17 +94,19 @@ def test_delete_api_product_deletes_s3_objects(db_session: Session):
     """
 
     tenant_id = "tenant_test"
-    product_id = str(uuid.uuid4())
+    product_id = uuid.uuid4()
 
     tenant = Tenant(
         id=tenant_id,
+        name="Test Tenant",
         slug="test-tenant",
     )
 
     provider = Provider(
-        id=str(uuid.uuid4()),
+        id=uuid.uuid4(),
         slug="test-provider",
         tenant_id=tenant_id,
+        name="Test Provider",
     )
 
     product = ApiProduct(

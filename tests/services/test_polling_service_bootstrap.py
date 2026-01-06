@@ -7,8 +7,8 @@ from avanamy.models.api_product import ApiProduct
 from avanamy.models.version_history import VersionHistory
 
 
-@pytest.mark.asyncio
-async def test_first_poll_creates_single_version(db_session, tenant, provider):
+@pytest.mark.anyio
+async def test_first_poll_creates_single_version(db_session, tenant, provider, monkeypatch):
     """
     GIVEN a watched API with no existing ApiSpec
     WHEN poll_watched_api is called
@@ -36,6 +36,45 @@ async def test_first_poll_creates_single_version(db_session, tenant, provider):
     db_session.commit()
 
     service = PollingService(db_session)
+
+    async def _fake_store_api_spec_file(
+        db,
+        file_bytes,
+        filename,
+        tenant_id,
+        api_product_id,
+        provider_id,
+        **_,
+    ):
+        from uuid import UUID
+        from avanamy.models.api_spec import ApiSpec
+        from avanamy.models.version_history import VersionHistory
+
+        spec = ApiSpec(
+            tenant_id=tenant_id,
+            api_product_id=UUID(str(api_product_id)),
+            provider_id=UUID(str(provider_id)),
+            name=filename,
+            original_file_s3_path="s3://bucket/bootstrap.yaml",
+            version="v1",
+        )
+        db.add(spec)
+        db.commit()
+        db.refresh(spec)
+
+        vh = VersionHistory(
+            api_spec_id=spec.id,
+            version=1,
+            changelog="Initial upload",
+        )
+        db.add(vh)
+        db.commit()
+        return spec
+
+    monkeypatch.setattr(
+        "avanamy.services.api_spec_service.store_api_spec_file",
+        _fake_store_api_spec_file,
+    )
 
     # Mock external fetch
     with patch.object(

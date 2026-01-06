@@ -1,6 +1,8 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from avanamy.models.api_spec import ApiSpec
 from avanamy.services.documentation_service import (
     ARTIFACT_TYPE_API_HTML,
@@ -11,6 +13,8 @@ from avanamy.services.documentation_service import (
 from uuid import UUID
 from avanamy.utils.filename_utils import slugify_filename
 from avanamy.utils.s3_paths import build_docs_markdown_path, build_docs_html_path
+
+pytestmark = pytest.mark.anyio
 
 
 def _make_spec(db, tenant, provider, product):
@@ -30,7 +34,7 @@ def _make_spec(db, tenant, provider, product):
     return spec
 
 
-def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_product, monkeypatch):
+async def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_product, monkeypatch):
     from avanamy.models.version_history import VersionHistory
 
     tenant, provider, product = tenant_provider_product
@@ -66,7 +70,7 @@ def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_pr
         lambda: repo,
     )
 
-    md_key = generate_and_store_markdown_for_spec(db, spec)
+    md_key = await generate_and_store_markdown_for_spec(db, spec)
 
     expected_slug = slugify_filename(spec.name)
 
@@ -117,7 +121,7 @@ def test_generate_and_store_markdown_for_spec_builds_keys(db, tenant_provider_pr
     assert html_upload_key in (spec.documentation_html_s3_path or "")
 
 
-def test_generate_and_store_markdown_returns_none_if_schema_missing(db, tenant_provider_product):
+async def test_generate_and_store_markdown_returns_none_if_schema_missing(db, tenant_provider_product):
     tenant, provider, product = tenant_provider_product
     spec = ApiSpec(
         tenant_id=tenant.id,
@@ -131,10 +135,10 @@ def test_generate_and_store_markdown_returns_none_if_schema_missing(db, tenant_p
     db.add(spec)
     db.commit()
 
-    assert generate_and_store_markdown_for_spec(db, spec) is None
+    assert await generate_and_store_markdown_for_spec(db, spec) is None
 
 
-def test_regenerate_all_docs_for_spec_computes_paths(db, tenant_provider_product, monkeypatch):
+async def test_regenerate_all_docs_for_spec_computes_paths(db, tenant_provider_product, monkeypatch):
     tenant, provider, product = tenant_provider_product
     spec = _make_spec(db, tenant, provider, product)
 
@@ -148,9 +152,12 @@ def test_regenerate_all_docs_for_spec_computes_paths(db, tenant_provider_product
         expected_slug,
     )
 
+    async def _fake_generate(_db, _spec):
+        return md_key
+
     monkeypatch.setattr(
         "avanamy.services.documentation_service.generate_and_store_markdown_for_spec",
-        lambda _db, _spec: md_key,
+        _fake_generate,
     )
     monkeypatch.setattr(
         "avanamy.services.documentation_service.VersionHistoryRepository.current_version_label_for_spec",
@@ -165,6 +172,6 @@ def test_regenerate_all_docs_for_spec_computes_paths(db, tenant_provider_product
         expected_slug,
     )
 
-    out_md, out_html = regenerate_all_docs_for_spec(db, spec)
+    out_md, out_html = await regenerate_all_docs_for_spec(db, spec)
     assert out_md == md_key
     assert out_html == html_key

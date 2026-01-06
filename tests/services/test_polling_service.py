@@ -446,9 +446,12 @@ class TestPollingServiceCreateNewVersion:
         updated_spec = SimpleNamespace(id="spec-id")
 
         # Mock update_api_spec_file
+        async def _update_spec(**kwargs):
+            return updated_spec
+
         monkeypatch.setattr(
             "avanamy.services.polling_service.update_api_spec_file",
-            lambda **kwargs: updated_spec
+            _update_spec,
         )
 
         service = PollingService(db)

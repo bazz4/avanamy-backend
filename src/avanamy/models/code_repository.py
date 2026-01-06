@@ -24,7 +24,7 @@ class CodeRepository(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     
     # Tenant isolation
-    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False)
     
     # Repository info
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -94,7 +94,7 @@ class CodeRepoEndpointUsage(Base):
     
     # Foreign keys
     code_repository_id: Mapped[UUID] = mapped_column(ForeignKey("code_repositories.id", ondelete="CASCADE"), nullable=False)
-    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False)
     
     # Endpoint identification
     endpoint_path: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g., /v1/users

@@ -1,7 +1,9 @@
 import json
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
+
+import pytest
 
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.version_history import VersionHistory
@@ -9,6 +11,8 @@ from avanamy.services.api_spec_service import (
     store_api_spec_file,
     update_api_spec_file,
 )
+
+pytestmark = pytest.mark.anyio
 
 
 def _uuid_str(u):
@@ -54,7 +58,7 @@ def _stub_db(product, tenant, provider):
     return db
 
 
-def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
+async def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
     tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
@@ -84,7 +88,7 @@ def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
     mock_upload = MagicMock(return_value=("temp-key", "s3://temp/temp-key"))
     mock_copy = MagicMock()
     mock_delete = MagicMock()
-    mock_docgen = MagicMock()
+    mock_docgen = AsyncMock()
     mock_version = SimpleNamespace(version=1)
 
     monkeypatch.setattr(
@@ -120,7 +124,7 @@ def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
         lambda db, **kwargs: spec,
     )
 
-    result = store_api_spec_file(
+    result = await store_api_spec_file(
         db=db,
         file_bytes=b'{"openapi": "3.0.0", "info": {"title": "X"}, "paths": {}}',
         filename="spec.json",
@@ -139,10 +143,10 @@ def test_store_api_spec_file_sets_version_and_paths(monkeypatch):
     assert "/providers/provider-a/" in dest_key
     assert "/api_products/product-a/versions/v1/" in dest_key
     mock_delete.assert_called_once()
-    mock_docgen.assert_called_once_with(db, spec)
+    mock_docgen.assert_awaited_once_with(db, spec)
 
 
-def test_store_api_spec_file_handles_parse_failure(monkeypatch):
+async def test_store_api_spec_file_handles_parse_failure(monkeypatch):
     tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
@@ -181,9 +185,12 @@ def test_store_api_spec_file_handles_parse_failure(monkeypatch):
         "avanamy.services.api_spec_service.delete_s3_object",
         lambda *args, **kwargs: None,
     )
+    async def _noop(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.VersionHistoryRepository.create",
@@ -202,7 +209,7 @@ def test_store_api_spec_file_handles_parse_failure(monkeypatch):
         lambda db, **kwargs: spec,
     )
 
-    result = store_api_spec_file(
+    result = await store_api_spec_file(
         db=db,
         file_bytes=b"invalid",
         filename="spec.yaml",
@@ -218,7 +225,7 @@ def test_store_api_spec_file_handles_parse_failure(monkeypatch):
     assert side_effect.call_count == 1
 
 
-def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
+async def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
     tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
     product_id = uuid.uuid4()
@@ -265,10 +272,10 @@ def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        MagicMock(),
+        AsyncMock(),
     )
 
-    updated = update_api_spec_file(
+    updated = await update_api_spec_file(
         db=db,
         spec=spec,
         file_bytes=b'{"paths": {}}',
@@ -285,7 +292,7 @@ def test_update_api_spec_file_updates_version_and_schema(monkeypatch):
     upload_calls.assert_called_once()
 
 
-def test_store_api_spec_file_reuses_existing_spec_for_same_product(
+async def test_store_api_spec_file_reuses_existing_spec_for_same_product(
     db,
     tenant_provider_product,
     monkeypatch,
@@ -319,13 +326,16 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
     )
 
     # Silence doc generation
+    async def _noop(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
 
     # Silence normalized spec and diff services
@@ -426,9 +436,9 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
     # -------------------------
     # Call service twice using real UUID objects
     # -------------------------
-    spec1 = store_api_spec_file(
+    spec1 = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
@@ -437,9 +447,9 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
         name="Menu API",
     )
 
-    spec2 = store_api_spec_file(
+    spec2 = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
@@ -461,7 +471,7 @@ def test_store_api_spec_file_reuses_existing_spec_for_same_product(
     assert vh_mock.call_count == 2
 
 
-def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_product, monkeypatch):
+async def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_product, monkeypatch):
     tenant, provider, product = tenant_provider_product
 
     # Silence S3 + doc generation side effects
@@ -481,13 +491,16 @@ def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_pr
         "avanamy.services.api_spec_service.generate_s3_url",
         lambda key: f"s3://bucket/{key}",
     )
+    async def _noop(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
 
     # Silence normalized spec and diff services
@@ -502,9 +515,9 @@ def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_pr
 
     payload = b"openapi: 3.0.0\ninfo:\n  title: Test\npaths: {}"
 
-    spec1 = store_api_spec_file(
+    spec1 = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
@@ -513,9 +526,9 @@ def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_pr
         name="Menu API",
     )
 
-    spec2 = store_api_spec_file(
+    spec2 = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product.id),
         filename="spec.yaml",
@@ -532,7 +545,7 @@ def test_store_api_spec_file_reuses_existing_spec_real_db(db, tenant_provider_pr
     assert len(versions) == 2
 
 
-def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_provider_product, monkeypatch):
+async def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_provider_product, monkeypatch):
     tenant, provider, product_a = tenant_provider_product
 
     # Create a second product under the same tenant/provider
@@ -565,13 +578,16 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
         "avanamy.services.api_spec_service.generate_s3_url",
         lambda key: f"s3://bucket/{key}",
     )
+    async def _noop(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        lambda *args, **kwargs: None,
+        _noop,
     )
 
     # Silence normalized spec and diff services
@@ -587,9 +603,9 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
     payload_a = b"openapi: 3.0.0\ninfo:\n  title: Product A\npaths: {}"
     payload_b = b"openapi: 3.0.0\ninfo:\n  title: Product B\npaths: {}"
 
-    spec_a = store_api_spec_file(
+    spec_a = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product_a.id),
         filename="spec-a.yaml",
@@ -598,9 +614,9 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
         name="Menu API A",
     )
 
-    spec_b = store_api_spec_file(
+    spec_b = await store_api_spec_file(
         db=db,
-        tenant_id=_uuid_str(tenant.id),
+        tenant_id=tenant.id,
         provider_id=_uuid_str(provider.id),
         api_product_id=_uuid_str(product_b.id),
         filename="spec-b.yaml",
@@ -613,7 +629,7 @@ def test_store_api_spec_file_creates_new_spec_for_different_products(db, tenant_
     assert len(all_specs) == 2
 
 
-def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
+async def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
     """Test that update_api_spec_file calls store_original_spec_artifact for new versions."""
     tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
@@ -674,7 +690,7 @@ def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        MagicMock(),
+        AsyncMock(),
     )
     monkeypatch.setattr(
         "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
@@ -689,7 +705,7 @@ def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
         lambda spec: spec,
     )
 
-    update_api_spec_file(
+    await update_api_spec_file(
         db=db,
         spec=spec,
         file_bytes=b'{"paths": {}}',
@@ -712,7 +728,7 @@ def test_update_api_spec_file_calls_store_original_spec_artifact(monkeypatch):
     assert "v2" in call_kwargs["s3_path"]
 
 
-def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
+async def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
     """Test that update_api_spec_file handles failures in store_original_spec_artifact gracefully."""
     tenant_id = "tenant_test123"
     provider_id = uuid.uuid4()
@@ -769,7 +785,7 @@ def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.regenerate_all_docs_for_spec",
-        MagicMock(),
+        AsyncMock(),
     )
     monkeypatch.setattr(
         "avanamy.services.normalized_spec_service.generate_and_store_normalized_spec",
@@ -785,7 +801,7 @@ def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
     )
 
     # Should not raise exception - the service should handle the failure gracefully
-    result = update_api_spec_file(
+    result = await update_api_spec_file(
         db=db,
         spec=spec,
         file_bytes=b'{"paths": {}}',
@@ -799,7 +815,7 @@ def test_update_api_spec_file_handles_artifact_storage_failure(monkeypatch):
     assert result == spec
 
 
-def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upload(monkeypatch):
+async def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upload(monkeypatch):
     """
     Test that store_api_spec_file (initial upload) does NOT call store_original_spec_artifact.
 
@@ -857,7 +873,7 @@ def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upl
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.generate_and_store_markdown_for_spec",
-        MagicMock(),
+        AsyncMock(),
     )
     monkeypatch.setattr(
         "avanamy.services.api_spec_service.VersionHistoryRepository.create",
@@ -880,7 +896,7 @@ def test_store_api_spec_file_does_not_call_original_spec_artifact_on_initial_upl
         lambda *args, **kwargs: None,
     )
 
-    store_api_spec_file(
+    await store_api_spec_file(
         db=db,
         file_bytes=b'{"openapi": "3.0.0", "info": {"title": "X"}, "paths": {}}',
         filename="spec.json",
