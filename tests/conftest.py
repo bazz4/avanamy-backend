@@ -21,6 +21,7 @@ import avanamy.models.watched_api
 import avanamy.models.alert_configuration
 import avanamy.models.alert_history
 import avanamy.models.endpoint_health
+import avanamy.models.code_repository
 
 
 @pytest.fixture(scope="session")
