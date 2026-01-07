@@ -37,6 +37,11 @@ class UpdateCodeRepositoryRequest(BaseModel):
     owner_email: str | None = Field(None, max_length=255)
 
 
+class ConnectGitHubRequest(BaseModel):
+    """Request to store an encrypted GitHub access token on a repo."""
+    access_token_encrypted: str = Field(..., min_length=1)
+
+
 class CodeRepositoryResponse(BaseModel):
     """Code repository response."""
     id: str
@@ -275,6 +280,51 @@ def delete_code_repository(
         CodeRepoRepository.delete(db, code_repository)
         
         logger.info(f"Deleted code repository: {code_repository_id}")
+
+
+@router.post("/{code_repository_id}/connect-github", response_model=CodeRepositoryResponse)
+def connect_github(
+    code_repository_id: UUID,
+    request: ConnectGitHubRequest,
+    db: Session = Depends(get_db),
+    tenant_id: str = Depends(get_current_tenant_id),
+):
+    """
+    Store an encrypted GitHub access token on a code repository.
+    """
+    with tracer.start_as_current_span("api.connect_github"):
+        code_repository = CodeRepoRepository.get_by_id(db, code_repository_id)
+        
+        if not code_repository:
+            raise HTTPException(status_code=404, detail="Code repository not found")
+        
+        if code_repository.tenant_id != tenant_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        code_repository = CodeRepoRepository.update(
+            db,
+            code_repository,
+            access_token_encrypted=request.access_token_encrypted,
+        )
+        
+        logger.info(f"Stored GitHub token for code repository: {code_repository_id}")
+        
+        return CodeRepositoryResponse(
+            id=str(code_repository.id),
+            tenant_id=code_repository.tenant_id,
+            name=code_repository.name,
+            url=code_repository.url,
+            owner_team=code_repository.owner_team,
+            owner_email=code_repository.owner_email,
+            scan_status=code_repository.scan_status,
+            last_scanned_at=code_repository.last_scanned_at.isoformat() if code_repository.last_scanned_at else None,
+            last_scan_commit_sha=code_repository.last_scan_commit_sha,
+            last_scan_error=code_repository.last_scan_error,
+            total_files_scanned=code_repository.total_files_scanned,
+            total_endpoints_found=code_repository.total_endpoints_found,
+            created_at=code_repository.created_at.isoformat(),
+            updated_at=code_repository.updated_at.isoformat(),
+        )
 
 
 @router.post("/{code_repository_id}/scan", status_code=202)

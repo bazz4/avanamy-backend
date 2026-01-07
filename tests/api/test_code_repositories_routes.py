@@ -132,6 +132,27 @@ def test_delete_code_repository(client, monkeypatch):
     assert resp.status_code == 204
 
 
+def test_connect_github_stores_token(client, monkeypatch):
+    repo = _repo(access_token_encrypted=None)
+    updated = _repo(access_token_encrypted="encrypted")
+
+    monkeypatch.setattr(
+        "avanamy.api.routes.code_repositories.CodeRepoRepository.get_by_id",
+        lambda _db, _id: repo,
+    )
+    monkeypatch.setattr(
+        "avanamy.api.routes.code_repositories.CodeRepoRepository.update",
+        lambda _db, _repo, **_kw: updated,
+    )
+
+    resp = client.post(
+        f"/code-repositories/{repo.id}/connect-github",
+        json={"access_token_encrypted": "encrypted"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tenant_id"] == "tenant_test123"
+
+
 def test_trigger_scan_requires_token(client, monkeypatch):
     repo = _repo(access_token_encrypted=None)
     monkeypatch.setattr(
