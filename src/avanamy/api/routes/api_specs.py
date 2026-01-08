@@ -278,7 +278,7 @@ async def regenerate_docs(
             )
             raise HTTPException(status_code=404, detail="API spec not found")
 
-        md_key, html_key = regenerate_all_docs_for_spec(db, spec)
+        md_key, html_key = await regenerate_all_docs_for_spec(db, spec)
 
         if not md_key or not html_key:
             raise HTTPException(
