@@ -5,7 +5,11 @@
       "Bash(ls:*)",
       "Bash(poetry run python:*)",
       "Bash(grep:*)",
-      "Bash(python -m pytest:*)"
+      "Bash(python -m pytest:*)",
+      "Bash(python test_scanner_direct.py:*)",
+      "Bash(python test_scanner_fixed.py:*)",
+      "Bash(python test_full_api.py:*)",
+      "Bash(python test_missing_lines.py:*)"
     ]
   }
 }

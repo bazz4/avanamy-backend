@@ -16,7 +16,7 @@ from avanamy.api.routes.alert_configs import router as alert_configs_router
 from avanamy.api.routes.alert_history import router as alert_history_router
 from avanamy.api.routes.endpoint_health import router as endpoint_health_router
 from avanamy.api.routes.code_repositories import router as code_repositories_router
-from avanamy.api.routes import github_oauth
+from avanamy.api.routes.github_app import router as github_app_router
 from fastapi.middleware.cors import CORSMiddleware
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
@@ -58,7 +58,7 @@ app.include_router(code_repositories_router)
 # github_oauth router has prefix="/github"
 # and is included with prefix="/api"
 # → final paths are /api/github/*
-app.include_router(github_oauth.router, prefix="/api")
+app.include_router(github_app_router, prefix="/api")
 
 # ------------------------------------------------------------------
 # Observability

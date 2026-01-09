@@ -24,7 +24,7 @@ class CodeRepoRepository:
         url: str,
         owner_team: str | None = None,
         owner_email: str | None = None,
-        github_installation_id: str | None = None,
+        github_installation_id: int | None = None,
         access_token_encrypted: str | None = None,
     ) -> CodeRepository:
         """

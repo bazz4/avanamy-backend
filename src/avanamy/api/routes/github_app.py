@@ -1,7 +1,7 @@
-# src/avanamy/api/routes/github_oauth.py
+# src/avanamy/api/routes/github_app.py
 
 """
-GitHub OAuth endpoints.
+GitHub App installation endpoints.
 """
 
 import logging
@@ -14,12 +14,12 @@ from datetime import datetime, timezone
 
 from avanamy.db.database import get_db
 from avanamy.auth.clerk import get_current_tenant_id
-from avanamy.services.github_oauth_service import GitHubOAuthService
+from avanamy.services.github_app_service import GitHubAppService
 from avanamy.services.encryption_service import get_encryption_service
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-router = APIRouter(prefix="/github", tags=["github-oauth"])
+router = APIRouter(prefix="/github", tags=["github-app"])
 
 
 # In-memory state store (use Redis in production)
@@ -41,6 +41,7 @@ class GitHubCallbackRequest(BaseModel):
 class GitHubTokenResponse(BaseModel):
     """GitHub access token response."""
     access_token_encrypted: str
+    installation_id: int
     user_info: dict
 
 
@@ -49,13 +50,13 @@ def authorize(
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     """
-    Initiate GitHub OAuth flow.
+    Initiate GitHub App installation flow.
     
-    Returns authorization URL for user to visit.
+    Returns installation URL for user to visit.
     """
     with tracer.start_as_current_span("api.github_authorize"):
         try:
-            oauth_service = GitHubOAuthService()
+            app_service = GitHubAppService()
             
             # Generate CSRF state token
             state = secrets.token_urlsafe(32)
@@ -66,18 +67,18 @@ def authorize(
                 "created_at": datetime.now(timezone.utc)
             }
             
-            # Generate authorization URL
-            auth_url = oauth_service.get_authorization_url(state)
+            # Generate installation URL
+            install_url = app_service.get_installation_url(state)
             
-            logger.info(f"Generated GitHub auth URL for tenant: {tenant_id}")
+            logger.info(f"Generated GitHub App installation URL for tenant: {tenant_id}")
             
             return GitHubAuthResponse(
-                authorization_url=auth_url,
+                authorization_url=install_url,
                 state=state
             )
             
         except Exception as e:
-            logger.exception("Failed to generate GitHub auth URL")
+            logger.exception("Failed to generate GitHub App installation URL")
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -87,9 +88,9 @@ async def callback(
     db: Session = Depends(get_db),
 ):
     """
-    Handle GitHub OAuth callback.
+    Handle GitHub App installation callback.
     
-    Exchanges code for access token and encrypts it.
+    Exchanges code for access token and installation ID.
     """
     with tracer.start_as_current_span("api.github_callback"):
         try:
@@ -100,56 +101,85 @@ async def callback(
             state_data = _oauth_states.pop(request.state)
             tenant_id = state_data["tenant_id"]
             
-            # Exchange code for token
-            oauth_service = GitHubOAuthService()
-            access_token = await oauth_service.exchange_code_for_token(request.code)
+            # Exchange code for token and installation ID
+            app_service = GitHubAppService()
+            result = await app_service.exchange_code_for_token(request.code)
+            
+            access_token = result["access_token"]
+            installation_id = result["installation_id"]
             
             # Get user info
-            user_info = await oauth_service.get_user_info(access_token)
+            user_info = await app_service.get_user_info(access_token)
             
             # Encrypt access token
             encryption_service = get_encryption_service()
             encrypted_token = encryption_service.encrypt(access_token)
             
-            logger.info(f"GitHub OAuth successful for tenant: {tenant_id}, user: {user_info.get('login')}")
+            logger.info(
+                f"GitHub App installation successful: "
+                f"tenant={tenant_id}, user={user_info.get('login')}, installation_id={installation_id}"
+            )
             
             return GitHubTokenResponse(
                 access_token_encrypted=encrypted_token,
+                installation_id=installation_id,
                 user_info=user_info
             )
             
         except Exception as e:
-            logger.exception("GitHub OAuth callback failed")
+            logger.exception("GitHub App callback failed")
             raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/repositories")
 async def list_repositories(
-    access_token_encrypted: str = Query(...),
+    installation_id: int = Query(...),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     """
-    List GitHub repositories accessible with provided token.
+    List GitHub repositories accessible via installation.
     
     This helps users select which repo to scan.
     """
     with tracer.start_as_current_span("api.github_list_repositories"):
         try:
-            from avanamy.services.github_api_service import GitHubAPIService
+            from avanamy.services.github_app_service import GitHubAppService
             
-            # Decrypt token
-            encryption_service = get_encryption_service()
-            access_token = encryption_service.decrypt(access_token_encrypted)
+            # Get installation token using App JWT
+            app_service = GitHubAppService()
+            installation_token = await app_service.get_installation_token(installation_id)
             
-            # List repositories
-            github_service = GitHubAPIService(access_token)
-            repositories = await github_service.list_repositories()
+            # Use installation token to list repos via GitHub API
+            url = "https://api.github.com/installation/repositories"
             
-            logger.info(f"Listed {len(repositories)} repositories for tenant: {tenant_id}")
-            
-            return {
-                "repositories": repositories
+            headers = {
+                "Authorization": f"Bearer {installation_token}",
+                "Accept": "application/vnd.github.v3+json"
             }
+            
+            import httpx
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                
+                data = response.json()
+                repos = data.get("repositories", [])
+                
+                result = []
+                for repo in repos:
+                    result.append({
+                        "name": repo["name"],
+                        "full_name": repo["full_name"],
+                        "clone_url": repo["clone_url"],
+                        "default_branch": repo.get("default_branch", "main"),
+                        "private": repo["private"],
+                    })
+                
+                logger.info(f"Listed {len(result)} repositories for installation: {installation_id}")
+                
+                return {
+                    "repositories": result
+                }
             
         except Exception as e:
             logger.exception("Failed to list GitHub repositories")

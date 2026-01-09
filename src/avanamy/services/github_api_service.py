@@ -32,32 +32,54 @@ class GitHubAPIService:
         self.github = Github(access_token)
         self.access_token = access_token
     
-    async def list_repositories(self) -> List[dict]:
+    async def list_repositories(self, installation_id: int) -> List[dict]:
         """
-        List repositories accessible to the authenticated user.
+        List repositories accessible via GitHub App installation.
         
+        Args:
+            installation_id: GitHub installation ID
+            
         Returns:
-            List of repository dicts with keys: name, full_name, clone_url, default_branch
+            List of repository dicts
         """
         with tracer.start_as_current_span("github.list_repositories"):
             try:
-                user = self.github.get_user()
-                repos = user.get_repos()
+                from avanamy.services.github_app_service import GitHubAppService
                 
-                result = []
-                for repo in repos:
-                    result.append({
-                        "name": repo.name,
-                        "full_name": repo.full_name,
-                        "clone_url": repo.clone_url,
-                        "default_branch": repo.default_branch,
-                        "private": repo.private,
-                    })
+                # Get installation token
+                app_service = GitHubAppService()
+                installation_token = await app_service.get_installation_token(installation_id)
                 
-                logger.info(f"Listed {len(result)} repositories")
-                return result
+                # Use installation token to list repos
+                url = "https://api.github.com/installation/repositories"
                 
-            except GithubException as e:
+                headers = {
+                    "Authorization": f"Bearer {installation_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+                
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    repos = data.get("repositories", [])
+                    
+                    result = []
+                    for repo in repos:
+                        result.append({
+                            "name": repo["name"],
+                            "full_name": repo["full_name"],
+                            "clone_url": repo["clone_url"],
+                            "default_branch": repo.get("default_branch", "main"),
+                            "private": repo["private"],
+                        })
+                    
+                    logger.info(f"Listed {len(result)} installation repositories")
+                    return result
+                    
+            except Exception as e:
                 logger.exception("Failed to list repositories")
                 raise ValueError(f"Failed to list repositories: {e}")
     

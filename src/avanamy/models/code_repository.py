@@ -31,7 +31,7 @@ class CodeRepository(Base):
     url: Mapped[str] = mapped_column(String(500), nullable=False)  # e.g., https://github.com/org/repo
     
     # Authentication (encrypted in production)
-    github_installation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    github_installation_id: Mapped[int | None] = mapped_column(nullable=True)
     access_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # Ownership (for impact alerts)

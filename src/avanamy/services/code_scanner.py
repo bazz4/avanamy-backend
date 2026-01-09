@@ -93,20 +93,41 @@ class RegexScanner(CodeScanner):
     # Language-specific regex patterns
     PATTERNS = {
         'javascript': [
-            # fetch() calls - all quote types
-            (r'''fetch\s*\(\s*['"`]([^'"`]+)['"`]''', None),
+            # === Custom API wrapper patterns - Handle both quotes and template literals ===
+            # With TypeScript generics - match both single and double quotes
+            (r'''apiGet\s*<[^>]+>\s*\(\s*['"]([^'"]+)['"]''', 'GET'),
+            (r'''apiPost\s*<[^>]+>\s*\(\s*['"]([^'"]+)['"]''', 'POST'),
+            (r'''apiPut\s*<[^>]+>\s*\(\s*['"]([^'"]+)['"]''', 'PUT'),
+            (r'''apiPatch\s*<[^>]+>\s*\(\s*['"]([^'"]+)['"]''', 'PATCH'),
+            (r'''apiDelete\s*<[^>]+>\s*\(\s*['"]([^'"]+)['"]''', 'DELETE'),
+
+            # Without TypeScript generics - match both single and double quotes
+            (r'''apiGet\s*\(\s*['"]([^'"]+)['"]''', 'GET'),
+            (r'''apiPost\s*\(\s*['"]([^'"]+)['"]''', 'POST'),
+            (r'''apiPut\s*\(\s*['"]([^'"]+)['"]''', 'PUT'),
+            (r'''apiDelete\s*\(\s*['"]([^'"]+)['"]''', 'DELETE'),
+            (r'''apiPatch\s*\(\s*['"]([^'"]+)['"]''', 'PATCH'),
+
+            # Template literals (backticks) - matches paths with ${} interpolation
+            (r'''apiGet\s*(?:<[^>]+>)?\s*\(\s*`([^`]+)`''', 'GET'),
+            (r'''apiPost\s*(?:<[^>]+>)?\s*\(\s*`([^`]+)`''', 'POST'),
+            (r'''apiPut\s*(?:<[^>]+>)?\s*\(\s*`([^`]+)`''', 'PUT'),
+            (r'''apiDelete\s*(?:<[^>]+>)?\s*\(\s*`([^`]+)`''', 'DELETE'),
+            (r'''apiPatch\s*(?:<[^>]+>)?\s*\(\s*`([^`]+)`''', 'PATCH'),
             
-            # axios methods
-            (r'''axios\.(get|post|put|delete|patch|head|options)\s*\(\s*['"`]([^'"`]+)['"`]''', 'method'),
+            # === Standard fetch patterns ===
+            (r'''fetch\s*\(\s*['"]([^'"]+)['"]''', None),
+            (r'''fetch\s*\(\s*`([^`]+)`''', None),
             
-            # other common HTTP libraries
-            (r'''(request|http\.get|https\.get|got|superagent)\s*\(\s*['"`]([^'"`]+)['"`]''', None),
+            # === Axios patterns ===
+            (r'''axios\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]''', 'method'),
+            (r'''axios\s*\(\s*\{\s*method:\s*['"](\ w+)['"],\s*url:\s*['"]([^'"]+)['"]''', 'method'),
             
-            # Generic API endpoint strings (paths starting with /v or /api)
-            (r'''['"`](/(?:v\d+|api)/[^\s'"`]+)['"`]''', None),
-            
-            # Full URLs with API paths
-            (r'''['"`](https?://[^'"`]+/(?:v\d+|api)/[^\s'"`]+)['"`]''', None),
+            # === Other HTTP libraries ===
+            (r'''request\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]''', 'method'),
+            (r'''http\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]''', 'method'),
+            (r'''got\.(get|post|put|delete|patch)\s*\(\s*['"]([^'"]+)['"]''', 'method'),
+            (r'''superagent\.(get|post|put|del|patch)\s*\(\s*['"]([^'"]+)['"]''', 'method'),
         ],
         
         'python': [
@@ -383,21 +404,32 @@ class RegexScanner(CodeScanner):
     def _looks_like_api_endpoint(self, url: str) -> bool:
         """
         Check if a string looks like an API endpoint.
-        
+
         Args:
             url: The URL string
-            
+
         Returns:
             True if it looks like an API endpoint
         """
-        # Must contain /v or /api
-        if not re.search(r'/(v\d+|api)/', url):
+        # For custom API wrappers (apiGet, apiPost, etc.), trust that they're API calls
+        # These are typically used only for API endpoints
+        # For generic libraries (fetch, axios), we require /v or /api pattern
+
+        # Must start with / (relative path) or be a full URL
+        if not (url.startswith('/') or url.startswith('http://') or url.startswith('https://')):
             return False
-        
-        # Skip if it's just documentation or comments
-        if any(word in url.lower() for word in ['example', 'placeholder', 'docs', 'readme']):
+
+        # Skip if it's just documentation or comments (but not API endpoints like /docs/)
+        # Only filter out if these words appear in non-path contexts
+        url_lower = url.lower()
+        # Allow /docs/ as a path segment, but filter out URLs that are obviously not API endpoints
+        if any(word in url_lower for word in ['example.com', 'placeholder', 'readme', 'documentation.html']):
             return False
-        
+
+        # Skip obvious non-API paths
+        if url.startswith(('/static/', '/public/', '/assets/', '/images/')):
+            return False
+
         return True
     
     def _extract_path_from_url(self, url: str) -> str:
@@ -438,12 +470,28 @@ class RegexScanner(CodeScanner):
         confidence = 1.0
         
         # Reduce confidence if URL contains template syntax
-        if '${' in url or '{' in url or '%' in url:
-            confidence *= 0.6
+        # BUT: Simple variable substitution like ${id} is still pretty clear
+        if '${' in url or '{' in url:
+            # Count how many variables
+            var_count = url.count('${')
+            if var_count == 1:
+                # Single variable like /users/${id} is still very clear
+                confidence *= 0.85  # ← Changed from 0.6 to 0.85
+            elif var_count == 2:
+                # Two variables like /users/${id}/posts/${postId}
+                confidence *= 0.75
+            else:
+                # Many variables - less confident
+                confidence *= 0.6
+        
+        # Further reduce if there's complex logic in the template
+        if '?' in url or ' ' in url:
+            # Query params with variables or conditional logic
+            confidence *= 0.8
         
         # Increase confidence if using known HTTP library
         http_libs = {
-            'javascript': ['fetch', 'axios', 'request', 'http', 'got'],
+            'javascript': ['fetch', 'axios', 'request', 'http', 'got', 'apiGet', 'apiPost', 'apiPut', 'apiDelete', 'apiPatch'],
             'python': ['requests', 'httpx', 'aiohttp', 'urllib'],
             'csharp': ['HttpClient', 'RestSharp', 'GetAsync', 'PostAsync'],
             'java': ['HttpClient', 'OkHttp', 'RestTemplate', 'HttpGet', 'HttpPost'],
@@ -455,10 +503,9 @@ class RegexScanner(CodeScanner):
         
         libs = http_libs.get(language, [])
         if any(lib in line for lib in libs):
-            confidence *= 1.2
+            confidence = min(confidence * 1.1, 1.0)  # Slight boost, cap at 1.0
         
         # Reduce confidence if line looks like it might be commented
-        # (this is a backup check - we already skip comment lines)
         if '//' in line[:line.find(url)] if url in line else False:
             confidence *= 0.5
         

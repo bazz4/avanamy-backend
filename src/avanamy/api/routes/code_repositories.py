@@ -28,6 +28,8 @@ class CreateCodeRepositoryRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=500)
     owner_team: str | None = Field(None, max_length=255)
     owner_email: str | None = Field(None, max_length=255)
+    access_token_encrypted: str | None = Field(None)
+    installation_id: int | None = Field(None)
 
 
 class UpdateCodeRepositoryRequest(BaseModel):
@@ -94,6 +96,9 @@ def create_code_repository(
     """
     with tracer.start_as_current_span("api.create_code_repository"):
         try:
+            # Extract installation_id if provided
+            installation_id = getattr(request, 'installation_id', None)
+            
             code_repository = CodeRepoRepository.create(
                 db,
                 tenant_id=tenant_id,
@@ -101,6 +106,8 @@ def create_code_repository(
                 url=request.url,
                 owner_team=request.owner_team,
                 owner_email=request.owner_email,
+                github_installation_id=installation_id,
+                access_token_encrypted=getattr(request, 'access_token_encrypted', None),
             )
             
             logger.info(f"Created code repository: {code_repository.id} for tenant {tenant_id}")
@@ -112,6 +119,7 @@ def create_code_repository(
                 url=code_repository.url,
                 owner_team=code_repository.owner_team,
                 owner_email=code_repository.owner_email,
+                access_token_encrypted=code_repository.access_token_encrypted,
                 scan_status=code_repository.scan_status,
                 last_scanned_at=code_repository.last_scanned_at.isoformat() if code_repository.last_scanned_at else None,
                 last_scan_commit_sha=code_repository.last_scan_commit_sha,
@@ -125,7 +133,6 @@ def create_code_repository(
         except Exception as e:
             logger.exception(f"Failed to create code repository for tenant {tenant_id}")
             raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("", response_model=list[CodeRepositoryResponse])
 def list_code_repositories(
@@ -348,27 +355,31 @@ async def trigger_scan(
         if code_repository.tenant_id != tenant_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Check if we have an access token
-        if not code_repository.access_token_encrypted:
+        # Check if we have installation ID
+        if not code_repository.github_installation_id:
             raise HTTPException(
                 status_code=400,
-                detail="No GitHub access token. Please connect via GitHub OAuth first."
+                detail="No GitHub App installation. Please connect via GitHub App first."
             )
         
-        # Decrypt access token
-        from avanamy.services.encryption_service import get_encryption_service
+        # Get installation token
+        from avanamy.services.github_app_service import GitHubAppService
         from avanamy.services.code_repo_scanner_service import CodeRepoScannerService
         
-        encryption_service = get_encryption_service()
-        access_token = encryption_service.decrypt(code_repository.access_token_encrypted)
+        app_service = GitHubAppService()
         
         # Trigger scan in background
         async def scan_task():
             scanner_service = CodeRepoScannerService(db)
             try:
+                # Get fresh installation token
+                installation_token = await app_service.get_installation_token(
+                    code_repository.github_installation_id
+                )
+                
                 await scanner_service.scan_repository_from_github(
                     code_repository_id=code_repository_id,
-                    access_token=access_token
+                    access_token=installation_token
                 )
             except Exception as e:
                 logger.exception(f"Background scan failed: {e}")
