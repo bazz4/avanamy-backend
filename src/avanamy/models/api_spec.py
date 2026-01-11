@@ -3,7 +3,9 @@ from sqlalchemy.orm import relationship
 from avanamy.db.database import Base
 from avanamy.models.base_model import uuid_pk, uuid_fk, timestamp_created, timestamp_updated
 import sqlalchemy as sa
+from sqlalchemy.orm import Mapped
 from avanamy.models.mixins import AuditMixin
+from avanamy.models.impact_analysis import ImpactAnalysisResult
 
 class ApiSpec(Base, AuditMixin):
     __tablename__ = "api_specs"
@@ -20,6 +22,13 @@ class ApiSpec(Base, AuditMixin):
     original_file_s3_path = Column(String, nullable=False)
     documentation_html_s3_path = Column(String, nullable=True)
     parsed_schema = Column(Text, nullable=True)
+
+    # Add this relationship
+    impact_analyses: Mapped[list[ImpactAnalysisResult]] = relationship(
+        "ImpactAnalysisResult",
+        back_populates="spec",
+        cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         sa.UniqueConstraint(

@@ -305,7 +305,7 @@ class PollingService:
         version_number: int
     ):
         """
-        Check if the new version has breaking changes and send alerts.
+        Check for breaking changes, run impact analysis, and send alerts.
         
         Args:
             watched_api: The WatchedAPI that was updated
@@ -334,15 +334,80 @@ class PollingService:
             
             diff = version_history.diff
             
-            # Check for breaking changes
-            breaking_changes = diff.get('breaking_changes', [])
-            is_breaking = len(breaking_changes) > 0
+            # FIXED: Use correct diff structure from spec_diff_engine.py
+            # Returns: {"breaking": bool, "changes": array}
+            is_breaking = diff.get("breaking", False)
+            changes = diff.get("changes", [])
             
-            if is_breaking:
-                logger.info(
-                    f"Breaking changes detected in version {version_number}, sending alerts"
-                )
+            if not is_breaking:
+                logger.info(f"No breaking changes in version {version_number}")
                 
+                # Check for non-breaking change alerts (optional)
+                if changes:
+                    alert_configs = (
+                        self.db.query(AlertConfiguration)
+                        .filter(
+                            AlertConfiguration.watched_api_id == watched_api.id,
+                            AlertConfiguration.enabled == True,
+                            AlertConfiguration.alert_on_non_breaking_changes == True
+                        )
+                        .all()
+                    )
+                    
+                    for config in alert_configs:
+                        self.email_service.send_non_breaking_change_alert(
+                            db=self.db,
+                            alert_config=config,
+                            watched_api=watched_api,
+                            version=version_history
+                        )
+                    
+                    logger.info(f"Sent {len(alert_configs)} non-breaking change alerts")
+                
+                return
+            
+            logger.info(
+                f"Breaking changes detected in version {version_number} for spec {watched_api.api_spec_id}"
+            )
+            
+            # --------------------------------------------------------------------
+            # NEW: Run Impact Analysis
+            # --------------------------------------------------------------------
+            try:
+                from avanamy.services.impact_analysis_service import ImpactAnalysisService
+                
+                logger.info("Running impact analysis for polling-detected changes")
+                
+                with tracer.start_as_current_span("polling.impact_analysis") as span:
+                    span.set_attribute("watched_api.id", str(watched_api.id))
+                    span.set_attribute("version", version_number)
+                    
+                    impact_service = ImpactAnalysisService(self.db)
+                    
+                    impact_result = await impact_service.analyze_breaking_changes(
+                        tenant_id=watched_api.tenant_id,
+                        diff=diff,
+                        spec_id=watched_api.api_spec_id,
+                        version_history_id=version_history.id,
+                        created_by_user_id=None,  # System-generated (polling)
+                    )
+                    
+                    span.set_attribute("impact.has_impact", impact_result.has_impact)
+                    span.set_attribute("impact.affected_repos", impact_result.total_affected_repos)
+                    
+                    logger.info(
+                        f"Impact analysis complete: has_impact={impact_result.has_impact}, "
+                        f"repos={impact_result.total_affected_repos}, "
+                        f"usages={impact_result.total_usages_affected}"
+                    )
+                
+            except Exception:
+                logger.exception("Failed to run impact analysis during polling")
+            
+            # --------------------------------------------------------------------
+            # Send Breaking Change Alerts
+            # --------------------------------------------------------------------
+            try:
                 # Get alert configurations
                 alert_configs = (
                     self.db.query(AlertConfiguration)
@@ -361,34 +426,14 @@ class PollingService:
                         alert_config=config,
                         watched_api=watched_api,
                         version=version_history,
-                        breaking_changes_count=len(breaking_changes)
+                        breaking_changes_count=len(changes),  # FIXED: Use changes array
                     )
                 
                 logger.info(f"Sent {len(alert_configs)} breaking change alerts")
-            
-            # Also check for non-breaking changes (optional)
-            elif diff:
-                # Get configs that want non-breaking alerts
-                alert_configs = (
-                    self.db.query(AlertConfiguration)
-                    .filter(
-                        AlertConfiguration.watched_api_id == watched_api.id,
-                        AlertConfiguration.enabled == True,
-                        AlertConfiguration.alert_on_non_breaking_changes == True
-                    )
-                    .all()
-                )
                 
-                for config in alert_configs:
-                    self.email_service.send_non_breaking_change_alert(
-                        db=self.db,
-                        alert_config=config,
-                        watched_api=watched_api,
-                        version=version_history
-                    )
+            except Exception:
+                logger.exception("Failed to send breaking change alerts")
                 
-                logger.info(f"Sent {len(alert_configs)} non-breaking change alerts")
-            
         except Exception as e:
             logger.error(f"Error checking/alerting breaking changes: {e}", exc_info=True)
             # Don't fail the polling if alerting fails

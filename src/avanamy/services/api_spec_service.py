@@ -490,6 +490,55 @@ async def update_api_spec_file(
             )
 
         # --------------------------------------------------------------------
+        # 6.5 Run impact analysis if breaking changes detected
+        # --------------------------------------------------------------------
+        try:
+            from avanamy.services.impact_analysis_service import ImpactAnalysisService
+            
+            # Get the latest version history with diff
+            latest_version = VersionHistoryRepository.get_latest_for_spec(db, spec.id)
+            
+            if latest_version and latest_version.diff:
+                diff = latest_version.diff
+                
+                # Check if there are breaking changes
+                if diff.get("breaking", False):
+                    logger.info(
+                        "Breaking changes detected in spec %s version %d, running impact analysis",
+                        spec.id,
+                        latest_version.version,
+                    )
+                    
+                    with tracer.start_as_current_span("service.impact_analysis") as impact_span:
+                        impact_span.set_attribute("spec.id", str(spec.id))
+                        impact_span.set_attribute("version", latest_version.version)
+                        
+                        impact_service = ImpactAnalysisService(db)
+                        
+                        # For manual uploads, user_id should be passed from route handler
+                        # For now, we'll use None (system) - can be enhanced later
+                        impact_result = await impact_service.analyze_breaking_changes(
+                            tenant_id=tenant_id,
+                            diff=diff,
+                            spec_id=spec.id,
+                            version_history_id=latest_version.id,
+                            created_by_user_id=None,  # TODO: Pass from route handler
+                        )
+                        
+                        impact_span.set_attribute("impact.has_impact", impact_result.has_impact)
+                        impact_span.set_attribute("impact.affected_repos", impact_result.total_affected_repos)
+                        
+                        logger.info(
+                            "Impact analysis complete for spec %s: has_impact=%s, repos=%d, usages=%d",
+                            spec.id,
+                            impact_result.has_impact,
+                            impact_result.total_affected_repos,
+                            impact_result.total_usages_affected,
+                        )
+        except Exception:
+            logger.exception("Failed to run impact analysis for spec %s", spec.id)
+
+        # --------------------------------------------------------------------
         # 7. Update WatchedAPI hash if this spec is being watched
         # --------------------------------------------------------------------
         from avanamy.models.watched_api import WatchedAPI
