@@ -10,6 +10,7 @@ from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from avanamy.auth.clerk import get_current_tenant_id
@@ -219,6 +220,96 @@ async def list_api_specs(
 
     return [serialize_spec(s) for s in specs]
 
+@router.get("/enriched", response_model=List[dict])
+async def list_api_specs_enriched(
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all API specs with enriched provider/product context and version information.
+    Returns specs with provider names, product names, latest version info, and breaking change indicators.
+    """
+    from avanamy.models.api_product import ApiProduct
+    from avanamy.models.provider import Provider
+    from avanamy.models.version_history import VersionHistory
+    
+    with tracer.start_as_current_span("api.list_api_specs_enriched") as span:
+        span.set_attribute("tenant.id", tenant_id)
+
+        # Get all specs with their products and providers using ORM
+        specs_query = (
+            db.query(
+                ApiSpec,
+                ApiProduct.provider_id,
+                Provider.name.label('provider_name'),
+                Provider.slug.label('provider_slug'),
+                ApiProduct.name.label('product_name'),
+                ApiProduct.slug.label('product_slug')
+            )
+            .join(ApiProduct, ApiSpec.api_product_id == ApiProduct.id)
+            .join(Provider, ApiProduct.provider_id == Provider.id)
+            .filter(ApiSpec.tenant_id == tenant_id)
+            .all()
+        )
+        
+        enriched_specs = []
+        
+        for spec, provider_id, provider_name, provider_slug, product_name, product_slug in specs_query:
+            # Get latest version info
+            latest_version = (
+                db.query(VersionHistory)
+                .filter(VersionHistory.api_spec_id == spec.id)
+                .order_by(VersionHistory.version.desc())
+                .first()
+            )
+            
+            # Count total versions
+            total_versions = (
+                db.query(VersionHistory)
+                .filter(VersionHistory.api_spec_id == spec.id)
+                .count()
+            )
+            
+            # Check for breaking changes
+            has_breaking = False
+            if latest_version and latest_version.diff:
+                # Check if diff JSON has breaking: true
+                diff_data = latest_version.diff
+                if isinstance(diff_data, dict):
+                    has_breaking = diff_data.get('breaking', False)
+                elif isinstance(diff_data, str):
+                    import json
+                    try:
+                        diff_dict = json.loads(diff_data)
+                        has_breaking = diff_dict.get('breaking', False)
+                    except:
+                        pass
+            
+            enriched_specs.append({
+                "id": str(spec.id),
+                "api_product_id": str(spec.api_product_id),
+                "name": spec.name,
+                "description": spec.description,
+                "provider_id": str(provider_id),
+                "provider_name": provider_name,
+                "provider_slug": provider_slug,
+                "product_name": product_name,
+                "product_slug": product_slug,
+                "latest_version": latest_version.version if latest_version else None,
+                "latest_version_created_at": latest_version.created_at.isoformat() if latest_version else None,
+                "total_versions": total_versions,
+                "has_breaking_changes": has_breaking,
+            })
+        
+        # Sort by latest version created_at (most recent first)
+        enriched_specs.sort(
+            key=lambda x: x['latest_version_created_at'] if x['latest_version_created_at'] else '', 
+            reverse=True
+        )
+        
+        logger.info(f"Returning {len(enriched_specs)} enriched specs for tenant {tenant_id}")
+        return enriched_specs
+
 # -----------------------------------------------------------------------------
 #  MUST COME LAST — dynamic path
 # -----------------------------------------------------------------------------
@@ -292,3 +383,6 @@ async def regenerate_docs(
             "markdown_s3_path": md_key,
             "html_s3_path": html_key,
         }
+    
+    from sqlalchemy import text
+
