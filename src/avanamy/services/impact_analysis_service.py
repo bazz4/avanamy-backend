@@ -144,10 +144,10 @@ class ImpactAnalysisService:
                     )
                     
                     all_affected_usages.extend(affected_usages)
-                    
-                    # Track unique repos
+
+                    # Track unique repos by repository name
                     for usage in affected_usages:
-                        repos_affected.add(str(usage.code_usage.code_repository_id))
+                        repos_affected.add(usage.repository_name)
                     
                     # Metrics per change type
                     affected_usages_total.labels(
@@ -285,6 +285,8 @@ class ImpactAnalysisService:
             affected_usages = []
             
             for usage in matching_usages:
+                now = datetime.now(timezone.utc)
+
                 affected_usage = AffectedCodeUsage(
                     tenant_id=tenant_id,
                     code_repo_endpoint_usage_id=usage.id,
@@ -298,6 +300,8 @@ class ImpactAnalysisService:
                     code_context=usage.code_context or "",
                     repository_name=usage.code_repository.name,
                     repository_url=usage.code_repository.url,
+                    created_at=now,
+                    updated_at=now,
                     created_by_user_id=user_id,
                     updated_by_user_id=user_id,
                 )

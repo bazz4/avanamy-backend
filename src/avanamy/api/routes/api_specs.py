@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session
 from avanamy.auth.clerk import get_current_tenant_id
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
+from avanamy.models.version_history import VersionHistory
 from avanamy.repositories.api_spec_repository import ApiSpecRepository
+from avanamy.services.impact_analysis_service import ImpactAnalysisService
 from avanamy.services.api_spec_service import store_api_spec_file, update_api_spec_file
 from avanamy.services.documentation_service import regenerate_all_docs_for_spec
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
@@ -150,6 +152,7 @@ async def upload_new_api_spec_version(
       - updates the existing ApiSpec row
       - regenerates Markdown + HTML docs
       - appends a VersionHistory row
+      - triggers impact analysis if breaking changes detected
     """
     contents = await file.read()
 
@@ -194,6 +197,62 @@ async def upload_new_api_spec_version(
             version=effective_version,
             description=effective_description,
         )
+        
+        # 4. Get the latest version history entry that was just created
+        latest_version = (
+            db.query(VersionHistory)
+            .filter(VersionHistory.api_spec_id == spec_id)
+            .order_by(VersionHistory.version.desc())
+            .first()
+        )
+        
+        # 5. Trigger impact analysis if there's a diff with breaking changes
+        if latest_version and latest_version.diff:
+            logger.info(
+                "Triggering impact analysis for spec=%s version=%s",
+                spec_id,
+                latest_version.version,
+            )
+            
+            try:
+                # Check if diff has breaking changes
+                diff_data = latest_version.diff
+                if isinstance(diff_data, str):
+                    import json
+                    diff_data = json.loads(diff_data)
+                
+                has_breaking = diff_data.get("breaking", False)
+                
+                if has_breaking:
+                    logger.info("Breaking changes detected, running impact analysis")
+                    
+                    # Run impact analysis
+                    impact_service = ImpactAnalysisService(db)
+                    impact_result = await impact_service.analyze_breaking_changes(
+                        tenant_id=tenant_id,
+                        diff=diff_data,
+                        spec_id=spec_id,
+                        version_history_id=latest_version.id,
+                        created_by_user_id=tenant_id,  # User who uploaded
+                    )
+                    
+                    logger.info(
+                        "Impact analysis complete: has_impact=%s affected_repos=%d",
+                        impact_result.has_impact,
+                        impact_result.total_affected_repos,
+                    )
+                else:
+                    logger.info("No breaking changes detected, skipping impact analysis")
+                    
+            except Exception as e:
+                # Don't fail the upload if impact analysis fails
+                logger.error(
+                    "Impact analysis failed for spec=%s version=%s: %s",
+                    spec_id,
+                    latest_version.version,
+                    str(e),
+                    exc_info=True,
+                )
 
     logger.info(
         "API new-version upload handler complete: spec_id=%s filename=%s",

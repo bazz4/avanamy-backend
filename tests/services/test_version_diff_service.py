@@ -12,7 +12,7 @@ from avanamy.services.version_diff_service import (
 )
 
 
-def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
+async def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     """Test that version 1 does not compute any diff."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -22,7 +22,7 @@ def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     db = MagicMock()
 
     # No mocks needed - should return early
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,
@@ -34,7 +34,7 @@ def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     db.query.assert_not_called()
 
 
-def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
+async def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
     """Test that version 2 computes diff against version 1."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -83,7 +83,7 @@ def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
         lambda db, api_spec_id, version: version_history,
     )
 
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,
@@ -96,7 +96,7 @@ def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
     db.commit.assert_called()
 
 
-def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
+async def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
     """Test graceful handling when previous spec cannot be loaded."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -112,7 +112,7 @@ def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
     )
 
     # Should not raise an exception
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,
@@ -124,7 +124,7 @@ def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
     db.commit.assert_not_called()
 
 
-def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
+async def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
     """Test graceful handling when diff computation fails."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -148,7 +148,7 @@ def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
     )
 
     # Should not raise an exception
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,
@@ -160,7 +160,7 @@ def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
     db.commit.assert_not_called()
 
 
-def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
+async def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
     """Test graceful handling when VersionHistory record is not found."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -191,7 +191,7 @@ def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
     )
 
     # Should not raise an exception
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,
@@ -506,7 +506,7 @@ def test_load_normalized_spec_for_version_handles_invalid_json(monkeypatch):
     assert result is None
 
 
-def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
+async def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
     """Test that breaking changes are correctly identified and stored."""
     spec_id = uuid.uuid4()
     tenant_id = "tenant_test123"
@@ -534,7 +534,26 @@ def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
     }
 
     db = MagicMock()
-    version_history = SimpleNamespace(diff=None)
+    version_history = SimpleNamespace(diff=None, id=123)
+
+    # Mock impact analysis result
+    mock_impact_result = SimpleNamespace(
+        has_impact=True,
+        total_affected_repos=2,
+        total_usages_affected=5
+    )
+
+    # Mock ImpactAnalysisService
+    async def mock_analyze_breaking_changes(tenant_id, diff, spec_id, version_history_id, created_by_user_id):
+        return mock_impact_result
+
+    mock_impact_service = MagicMock()
+    mock_impact_service.analyze_breaking_changes = mock_analyze_breaking_changes
+
+    monkeypatch.setattr(
+        "avanamy.services.version_diff_service.ImpactAnalysisService",
+        lambda db: mock_impact_service,
+    )
 
     monkeypatch.setattr(
         "avanamy.services.version_diff_service._load_normalized_spec_for_version",
@@ -551,7 +570,7 @@ def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
         lambda db, api_spec_id, version: version_history,
     )
 
-    compute_and_store_diff(
+    await compute_and_store_diff(
         db,
         spec_id=spec_id,
         tenant_id=tenant_id,

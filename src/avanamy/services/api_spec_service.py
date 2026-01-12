@@ -458,11 +458,11 @@ async def update_api_spec_file(
         try:
             from avanamy.services.version_diff_service import compute_and_store_diff
             from avanamy.services.spec_normalizer import normalize_openapi_spec
-            
+
             # Generate normalized spec for diffing
             current_normalized = normalize_openapi_spec(parsed_dict if parsed_dict else {})
-            
-            compute_and_store_diff(
+
+            await compute_and_store_diff(
                 db,
                 spec_id=spec.id,
                 tenant_id=tenant.id,

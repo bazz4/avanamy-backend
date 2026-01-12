@@ -10,6 +10,7 @@ Diffs are stored in VersionHistory.diff column.
 from __future__ import annotations
 import json
 import logging
+import asyncio
 from uuid import UUID
 from sqlalchemy.orm import Session
 from opentelemetry import trace
@@ -17,6 +18,7 @@ from opentelemetry import trace
 from avanamy.models.documentation_artifact import DocumentationArtifact
 from avanamy.services.spec_diff_engine import diff_normalized_specs
 from avanamy.services.s3 import download_bytes
+from avanamy.services.impact_analysis_service import ImpactAnalysisService
 from avanamy.repositories.version_history_repository import VersionHistoryRepository
 from avanamy.repositories.documentation_artifact_repository import DocumentationArtifactRepository
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-def compute_and_store_diff(
+async def compute_and_store_diff(
     db: Session,
     *,
     spec_id: UUID,
@@ -34,10 +36,10 @@ def compute_and_store_diff(
 ) -> None:
     """
     Compute diff between current version and previous version, then store in VersionHistory.
-    
+
     For version 1, no diff is computed (diff=None).
     For version 2+, diff is computed against previous version.
-    
+
     Args:
         db: Database session
         spec_id: ApiSpec UUID
@@ -139,6 +141,66 @@ def compute_and_store_diff(
                 diff_result.get("breaking"),
                 len(diff_result.get("changes", [])),
             )
+
+            # ====================================================================
+            # TRIGGER IMPACT ANALYSIS IF BREAKING CHANGES DETECTED
+            # ====================================================================
+            logger.info(
+                "DEBUG: Checking breaking changes - diff_result.get('breaking', False) = %s",
+                diff_result.get("breaking", False)
+            )
+
+            if diff_result.get("breaking", False):
+                logger.info(
+                    "Breaking changes detected in spec_id=%s version=%d version_history_id=%d, triggering impact analysis",
+                    spec_id,
+                    current_version,
+                    version_history.id,
+                )
+
+                try:
+                    logger.info("DEBUG: Creating ImpactAnalysisService instance")
+                    impact_service = ImpactAnalysisService(db)
+
+                    logger.info("DEBUG: Calling analyze_breaking_changes with version_history_id=%d", version_history.id)
+                    impact_result = await impact_service.analyze_breaking_changes(
+                        tenant_id=tenant_id,
+                        diff=diff_result,
+                        spec_id=spec_id,
+                        version_history_id=version_history.id,
+                        created_by_user_id=None,  # System-generated
+                    )
+
+                    logger.info(
+                        "Impact analysis complete: has_impact=%s, affected_repos=%d, usages=%d",
+                        impact_result.has_impact,
+                        impact_result.total_affected_repos,
+                        impact_result.total_usages_affected,
+                    )
+
+                    span.set_attribute("impact_analysis.has_impact", impact_result.has_impact)
+                    span.set_attribute("impact_analysis.affected_repos", impact_result.total_affected_repos)
+                    span.set_attribute("impact_analysis.usages_affected", impact_result.total_usages_affected)
+
+                except Exception as e:
+                    # Don't fail the diff storage if impact analysis fails
+                    logger.error(
+                        "Impact analysis failed for spec_id=%s version=%d: %s",
+                        spec_id,
+                        current_version,
+                        str(e),
+                        exc_info=True,
+                    )
+                    span.set_attribute("impact_analysis.error", str(e))
+            else:
+                logger.info(
+                    "No breaking changes in spec_id=%s version=%d, skipping impact analysis",
+                    spec_id,
+                    current_version,
+                )
+            # ====================================================================
+            # END IMPACT ANALYSIS TRIGGER
+            # ====================================================================
             
             # Generate AI summary (best-effort, don't fail if it doesn't work)
             try:
