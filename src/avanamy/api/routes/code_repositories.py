@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from opentelemetry import trace
 
 from avanamy.db.database import get_db
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 from avanamy.repositories.code_repo_repository import CodeRepoRepository
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ class CodeRepositoryDetailResponse(CodeRepositoryResponse):
 def create_code_repository(
     request: CreateCodeRepositoryRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     """
@@ -107,6 +108,7 @@ def create_code_repository(
                 owner_team=request.owner_team,
                 owner_email=request.owner_email,
                 github_installation_id=installation_id,
+                created_by_user_id=user_id,
                 access_token_encrypted=getattr(request, 'access_token_encrypted', None),
             )
             
@@ -219,6 +221,7 @@ def update_code_repository(
     code_repository_id: UUID,
     request: UpdateCodeRepositoryRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
 ):
     """
@@ -241,6 +244,7 @@ def update_code_repository(
             updates['owner_team'] = request.owner_team
         if request.owner_email is not None:
             updates['owner_email'] = request.owner_email
+        updates['updated_by_user_id'] = user_id
         
         code_repository = CodeRepoRepository.update(db, code_repository, **updates)
         

@@ -18,7 +18,7 @@ from datetime import datetime
 
 from avanamy.db.database import get_db
 from avanamy.models.alert_configuration import AlertConfiguration
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 from opentelemetry import trace
 
 router = APIRouter(prefix="/alert-configs", tags=["alert-configs"])
@@ -85,6 +85,7 @@ class AlertConfigResponse(BaseModel):
 @router.post("", response_model=AlertConfigResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert_config(
     request: CreateAlertConfigRequest,
+    user_id: str = Depends(get_current_user_id),  
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -114,7 +115,8 @@ async def create_alert_config(
             alert_on_non_breaking_changes=request.alert_on_non_breaking_changes,
             alert_on_endpoint_failures=request.alert_on_endpoint_failures,
             alert_on_endpoint_recovery=request.alert_on_endpoint_recovery,
-            enabled=request.enabled
+            enabled=request.enabled,
+            created_by_user_id=user_id
         )
         
         db.add(alert_config)
@@ -174,6 +176,7 @@ async def get_alert_config(
 async def update_alert_config(
     config_id: UUID,
     request: UpdateAlertConfigRequest,
+    user_id: str = Depends(get_current_user_id),  
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -215,6 +218,8 @@ async def update_alert_config(
         
         if request.destination is not None:
             config.destination = request.destination
+
+        config.updated_by_user_id = user_id 
         
         db.commit()
         db.refresh(config)

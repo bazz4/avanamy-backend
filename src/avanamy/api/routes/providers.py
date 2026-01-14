@@ -12,7 +12,7 @@ from fastapi import Body
 
 from avanamy.db.database import get_db
 from avanamy.models.provider import Provider
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 
 router = APIRouter(prefix="/providers", tags=["providers"])
 
@@ -108,6 +108,7 @@ async def get_provider(
 @router.post("", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
 async def create_provider(
     provider_data: ProviderCreate,
+    user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -138,8 +139,8 @@ async def create_provider(
         website=website if website else None,
         logo_url=logo_url if logo_url else None,
         description=description if description else None,
-        created_by_user_id=tenant_id,
-        updated_by_user_id=tenant_id
+        created_by_user_id=user_id,
+        updated_by_user_id=user_id
     )
     
     db.add(provider)
@@ -153,6 +154,7 @@ async def create_provider(
 async def update_provider(
     provider_id: str,
     provider_data: ProviderUpdate,
+    user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -187,7 +189,7 @@ async def update_provider(
     for field, value in update_data.items():
         setattr(provider, field, value)
     
-    provider.updated_by_user_id = tenant_id  # Using tenant_id as user_id for now
+    provider.updated_by_user_id = user_id
     
     db.commit()
     db.refresh(provider)

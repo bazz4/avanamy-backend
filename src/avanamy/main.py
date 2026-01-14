@@ -18,6 +18,7 @@ from avanamy.api.routes.endpoint_health import router as endpoint_health_router
 from avanamy.api.routes.code_repositories import router as code_repositories_router
 from avanamy.api.routes.github_app import router as github_app_router
 from avanamy.api.routes.impact_analysis import router as impact_analysis_router
+from avanamy.api.routes.organizations import router as organizations_router
 from fastapi.middleware.cors import CORSMiddleware
 from avanamy.services.s3 import upload_bytes
 from avanamy.logging_config import configure_logging
@@ -54,6 +55,7 @@ app.include_router(alert_configs_router)
 app.include_router(alert_history_router)
 app.include_router(endpoint_health_router)
 app.include_router(code_repositories_router)
+app.include_router(organizations_router, prefix="/api")
 app.include_router(impact_analysis_router, prefix="/api/impact-analysis", tags=["impact-analysis"])
 
 # NOTE:

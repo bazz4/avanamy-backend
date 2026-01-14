@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.version_history import VersionHistory
@@ -140,6 +140,7 @@ async def upload_new_api_spec_version(
     file: UploadFile = File(...),
     version: Optional[str] = None,
     description: Optional[str] = None,
+    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -233,7 +234,7 @@ async def upload_new_api_spec_version(
                         diff=diff_data,
                         spec_id=spec_id,
                         version_history_id=latest_version.id,
-                        created_by_user_id=tenant_id,  # User who uploaded
+                        created_by_user_id=user_id,  # User who uploaded
                     )
                     
                     logger.info(

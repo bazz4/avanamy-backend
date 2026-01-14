@@ -17,7 +17,7 @@ from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 from avanamy.db.database import get_db
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.provider import Provider
@@ -84,6 +84,7 @@ class WatchedAPIResponse(BaseModel):
 @router.post("", response_model=WatchedAPIResponse, status_code=status.HTTP_201_CREATED)
 def create_watched_api(
     request: CreateWatchedAPIRequest,
+    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -105,7 +106,8 @@ def create_watched_api(
             spec_url=str(request.spec_url),
             polling_frequency=request.polling_frequency,
             polling_enabled=True,
-            status="active"
+            status="active",
+            created_by_user_id=user_id,
         )
         
         db.add(watched_api)
@@ -187,6 +189,7 @@ def get_watched_api(
 def update_watched_api(
     watched_api_id: UUID,
     request: UpdateWatchedAPIRequest,
+    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -219,6 +222,8 @@ def update_watched_api(
         
         if request.status is not None:
             watched_api.status = request.status
+
+        watched_api.updated_by_user_id = user_id
         
         db.commit()
         db.refresh(watched_api)

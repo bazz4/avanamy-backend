@@ -14,3 +14,5 @@ from .alert_configuration import AlertConfiguration
 from .alert_history import AlertHistory
 from .endpoint_health import EndpointHealth
 from .impact_analysis import ImpactAnalysisResult, AffectedCodeUsage
+from avanamy.models.organization_member import OrganizationMember
+from avanamy.models.organization_invitation import OrganizationInvitation
