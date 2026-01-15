@@ -13,6 +13,7 @@ from .watched_api import WatchedAPI
 from .alert_configuration import AlertConfiguration
 from .alert_history import AlertHistory
 from .endpoint_health import EndpointHealth
+from .code_repository import CodeRepository, CodeRepoEndpointUsage
 from .impact_analysis import ImpactAnalysisResult, AffectedCodeUsage
 from avanamy.models.organization_member import OrganizationMember
 from avanamy.models.organization_invitation import OrganizationInvitation

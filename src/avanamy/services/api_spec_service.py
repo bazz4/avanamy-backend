@@ -496,7 +496,7 @@ async def update_api_spec_file(
             from avanamy.services.impact_analysis_service import ImpactAnalysisService
             
             # Get the latest version history with diff
-            latest_version = VersionHistoryRepository.get_latest_for_spec(db, spec.id)
+            latest_version = VersionHistoryRepository._get_latest_row(db, spec.id)
             
             if latest_version and latest_version.diff:
                 diff = latest_version.diff

@@ -17,6 +17,7 @@ from opentelemetry import trace
 
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.version_history import VersionHistory
+from avanamy.models.impact_analysis import AffectedCodeUsage
 from avanamy.services.api_spec_service import update_api_spec_file
 from avanamy.services.alert_service import AlertService
 from avanamy.services.endpoint_health_service import EndpointHealthService
@@ -87,7 +88,7 @@ class PollingService:
                 
                 # Parse the spec to determine format
                 try:
-                    parsed_spec = parse_api_spec("spec.yaml", spec_content)
+                    parsed_spec = parse_api_spec("spec.yaml", spec_content.encode("utf-8"))
                     spec_format = parsed_spec.get("openapi", parsed_spec.get("swagger", "unknown"))
                 except Exception as parse_error:
                     logger.warning(f"Could not parse spec format: {parse_error}")
@@ -400,6 +401,59 @@ class PollingService:
                         f"repos={impact_result.total_affected_repos}, "
                         f"usages={impact_result.total_usages_affected}"
                     )
+
+                    # ✅ Auto-trigger repository scans for affected repos
+                    if impact_result.has_impact and impact_result.total_affected_repos > 0:
+                        logger.info(
+                            f"Triggering immediate scans for {impact_result.total_affected_repos} "
+                            f"affected repositories"
+                        )
+                        
+                        try:
+                            from datetime import datetime, timezone
+                            from avanamy.models.code_repository import CodeRepository, CodeRepoEndpointUsage
+                            from avanamy.models.impact_analysis import AffectedCodeUsage
+                            
+                            # Get affected usages from the database
+                            affected_usages = self.db.query(AffectedCodeUsage).filter(
+                                AffectedCodeUsage.impact_analysis_result_id == impact_result.id
+                            ).all()
+                            
+                            # Get unique affected repository IDs by joining through endpoint usages
+                            affected_repo_ids = set()
+                            for usage in affected_usages:
+                                # Get the endpoint usage to find the repo
+                                endpoint_usage = self.db.query(CodeRepoEndpointUsage).filter(
+                                    CodeRepoEndpointUsage.id == usage.code_repo_endpoint_usage_id
+                                ).first()
+                                
+                                if endpoint_usage:
+                                    affected_repo_ids.add(endpoint_usage.code_repository_id)
+                            
+                            # Update next_scan_at to NOW for affected repos
+                            repos_updated = 0
+                            for repo_id in affected_repo_ids:
+                                repo = self.db.query(CodeRepository).filter(
+                                    CodeRepository.id == repo_id
+                                ).first()
+                                
+                                if repo:
+                                    repo.next_scan_at = datetime.now(timezone.utc)
+                                    repos_updated += 1
+                            
+                            self.db.commit()
+                            
+                            logger.info(
+                                f"✓ Scheduled {repos_updated} repositories for immediate scanning"
+                            )
+                            
+                        except Exception as scan_trigger_error:
+                            logger.exception(
+                                f"Failed to trigger repository scans: {scan_trigger_error}"
+                            )
+                            # Rollback the transaction to recover
+                            self.db.rollback()
+                            # Don't fail the whole process if this fails
                 
             except Exception:
                 logger.exception("Failed to run impact analysis during polling")
