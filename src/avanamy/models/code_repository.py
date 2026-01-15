@@ -6,8 +6,9 @@ Code Repository models for code scanning and impact analysis.
 
 from __future__ import annotations
 from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID, uuid4
-from sqlalchemy import String, Text, DateTime, ForeignKey, Index
+from sqlalchemy import String, Text, DateTime, ForeignKey, Index, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from avanamy.db.database import Base
 
@@ -47,7 +48,10 @@ class CodeRepository(Base):
         default="pending"
     )  # pending, scanning, success, failed
     last_scan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+    scan_interval_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24)
+    next_scan_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    consecutive_scan_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+   
     # Stats
     total_files_scanned: Mapped[int] = mapped_column(default=0)
     total_endpoints_found: Mapped[int] = mapped_column(default=0)
