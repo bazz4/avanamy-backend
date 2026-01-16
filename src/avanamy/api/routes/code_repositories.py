@@ -60,6 +60,11 @@ class CodeRepositoryResponse(BaseModel):
     total_endpoints_found: int
     created_at: str
     updated_at: str
+    scan_interval_hours: int
+    next_scan_at: str | None
+    consecutive_scan_failures: int
+    created_at: str
+    updated_at: str
     
     class Config:
         from_attributes = True
@@ -161,6 +166,9 @@ def list_code_repositories(
                 last_scan_error=repo.last_scan_error,
                 total_files_scanned=repo.total_files_scanned,
                 total_endpoints_found=repo.total_endpoints_found,
+                scan_interval_hours=repo.scan_interval_hours,
+                next_scan_at=repo.next_scan_at.isoformat() if repo.next_scan_at else None,
+                consecutive_scan_failures=repo.consecutive_scan_failures,
                 created_at=repo.created_at.isoformat(),
                 updated_at=repo.updated_at.isoformat(),
             )
@@ -199,6 +207,10 @@ def get_code_repository(
             last_scan_error=code_repository.last_scan_error,
             total_files_scanned=code_repository.total_files_scanned,
             total_endpoints_found=code_repository.total_endpoints_found,
+            # ✨ ADD THESE THREE LINES:
+            scan_interval_hours=code_repository.scan_interval_hours,
+            next_scan_at=code_repository.next_scan_at.isoformat() if code_repository.next_scan_at else None,
+            consecutive_scan_failures=code_repository.consecutive_scan_failures,
             created_at=code_repository.created_at.isoformat(),
             updated_at=code_repository.updated_at.isoformat(),
             endpoint_usages=[
