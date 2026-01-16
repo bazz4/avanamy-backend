@@ -7,12 +7,12 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, Integer
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from avanamy.db.database import get_db
 from avanamy.models.endpoint_health import EndpointHealth
@@ -40,8 +40,7 @@ class EndpointHealthResponse(BaseModel):
     error_message: Optional[str]
     checked_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EndpointHealthSummary(BaseModel):
@@ -128,7 +127,7 @@ def get_endpoint_health_summary(
             )
         
         # Calculate time window
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         # Get all unique endpoints
         endpoints = db.query(
@@ -195,7 +194,7 @@ def get_all_health_summary(
             WatchedAPI.polling_enabled == True
         ).all()
         
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         summaries = []
         
         for api in watched_apis:

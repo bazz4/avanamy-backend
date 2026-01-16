@@ -8,7 +8,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from avanamy.models.alert_history import AlertHistory
@@ -374,7 +374,7 @@ class EmailService:
                 payload=payload,
                 status=status,
                 error_message=error_message,
-                sent_at=datetime.utcnow() if status == "sent" else None
+                sent_at=datetime.now(timezone.utc) if status == "sent" else None
             )
             
             db.add(history)

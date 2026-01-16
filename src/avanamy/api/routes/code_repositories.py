@@ -9,7 +9,7 @@ import logging
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from opentelemetry import trace
 
 from avanamy.db.database import get_db
@@ -66,8 +66,7 @@ class CodeRepositoryResponse(BaseModel):
     created_at: str
     updated_at: str
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EndpointUsageResponse(BaseModel):
@@ -126,13 +125,15 @@ def create_code_repository(
                 url=code_repository.url,
                 owner_team=code_repository.owner_team,
                 owner_email=code_repository.owner_email,
-                access_token_encrypted=code_repository.access_token_encrypted,
                 scan_status=code_repository.scan_status,
                 last_scanned_at=code_repository.last_scanned_at.isoformat() if code_repository.last_scanned_at else None,
                 last_scan_commit_sha=code_repository.last_scan_commit_sha,
                 last_scan_error=code_repository.last_scan_error,
                 total_files_scanned=code_repository.total_files_scanned,
                 total_endpoints_found=code_repository.total_endpoints_found,
+                scan_interval_hours=code_repository.scan_interval_hours,
+                next_scan_at=code_repository.next_scan_at.isoformat() if code_repository.next_scan_at else None,
+                consecutive_scan_failures=code_repository.consecutive_scan_failures,
                 created_at=code_repository.created_at.isoformat(),
                 updated_at=code_repository.updated_at.isoformat(),
             )
@@ -275,6 +276,9 @@ def update_code_repository(
             last_scan_error=code_repository.last_scan_error,
             total_files_scanned=code_repository.total_files_scanned,
             total_endpoints_found=code_repository.total_endpoints_found,
+            scan_interval_hours=code_repository.scan_interval_hours,
+            next_scan_at=code_repository.next_scan_at.isoformat() if code_repository.next_scan_at else None,
+            consecutive_scan_failures=code_repository.consecutive_scan_failures,
             created_at=code_repository.created_at.isoformat(),
             updated_at=code_repository.updated_at.isoformat(),
         )
@@ -345,6 +349,9 @@ def connect_github(
             last_scan_error=code_repository.last_scan_error,
             total_files_scanned=code_repository.total_files_scanned,
             total_endpoints_found=code_repository.total_endpoints_found,
+            scan_interval_hours=code_repository.scan_interval_hours,
+            next_scan_at=code_repository.next_scan_at.isoformat() if code_repository.next_scan_at else None,
+            consecutive_scan_failures=code_repository.consecutive_scan_failures,
             created_at=code_repository.created_at.isoformat(),
             updated_at=code_repository.updated_at.isoformat(),
         )

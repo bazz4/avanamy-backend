@@ -12,6 +12,7 @@ from avanamy.services.version_diff_service import (
 )
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     """Test that version 1 does not compute any diff."""
     spec_id = uuid.uuid4()
@@ -34,6 +35,7 @@ async def test_compute_and_store_diff_version_1_no_diff(monkeypatch):
     db.query.assert_not_called()
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
     """Test that version 2 computes diff against version 1."""
     spec_id = uuid.uuid4()
@@ -96,6 +98,7 @@ async def test_compute_and_store_diff_version_2_computes_diff(monkeypatch):
     db.commit.assert_called()
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch):
     """Test graceful handling when previous spec cannot be loaded."""
     spec_id = uuid.uuid4()
@@ -124,6 +127,7 @@ async def test_compute_and_store_diff_handles_missing_previous_spec(monkeypatch)
     db.commit.assert_not_called()
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch):
     """Test graceful handling when diff computation fails."""
     spec_id = uuid.uuid4()
@@ -160,6 +164,7 @@ async def test_compute_and_store_diff_handles_diff_computation_error(monkeypatch
     db.commit.assert_not_called()
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_handles_version_history_not_found(monkeypatch):
     """Test graceful handling when VersionHistory record is not found."""
     spec_id = uuid.uuid4()
@@ -506,6 +511,7 @@ def test_load_normalized_spec_for_version_handles_invalid_json(monkeypatch):
     assert result is None
 
 
+@pytest.mark.anyio
 async def test_compute_and_store_diff_includes_breaking_changes(monkeypatch):
     """Test that breaking changes are correctly identified and stored."""
     spec_id = uuid.uuid4()

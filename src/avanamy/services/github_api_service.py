@@ -9,7 +9,7 @@ import tempfile
 import shutil
 import logging
 from typing import List, Tuple
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 from git import Repo
 from opentelemetry import trace
 
@@ -29,7 +29,7 @@ class GitHubAPIService:
         Args:
             access_token: GitHub personal access token
         """
-        self.github = Github(access_token)
+        self.github = Github(auth=Auth.Token(access_token))
         self.access_token = access_token
     
     async def list_repositories(self, installation_id: int) -> List[dict]:

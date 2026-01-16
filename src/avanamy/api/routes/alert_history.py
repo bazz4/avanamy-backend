@@ -7,7 +7,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from uuid import UUID
@@ -45,8 +45,7 @@ class AlertHistoryResponse(BaseModel):
     sent_at: Optional[datetime] = None
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Endpoints

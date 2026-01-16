@@ -1,6 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
+
+from unittest.mock import AsyncMock
 
 
 def _repo(tenant_id="tenant_test123", **kwargs):
@@ -18,10 +20,14 @@ def _repo(tenant_id="tenant_test123", **kwargs):
         last_scan_error=None,
         total_files_scanned=0,
         total_endpoints_found=0,
+        scan_interval_hours=kwargs.get("scan_interval_hours", 24),
+        next_scan_at=kwargs.get("next_scan_at", now + timedelta(hours=24)),
+        consecutive_scan_failures=kwargs.get("consecutive_scan_failures", 0),
         created_at=now,
         updated_at=now,
         endpoint_usages=kwargs.get("endpoint_usages", []),
         access_token_encrypted=kwargs.get("access_token_encrypted"),
+        github_installation_id=kwargs.get("github_installation_id"),
     )
 
 
@@ -154,7 +160,7 @@ def test_connect_github_stores_token(client, monkeypatch):
 
 
 def test_trigger_scan_requires_token(client, monkeypatch):
-    repo = _repo(access_token_encrypted=None)
+    repo = _repo(github_installation_id=None)
     monkeypatch.setattr(
         "avanamy.api.routes.code_repositories.CodeRepoRepository.get_by_id",
         lambda _db, _id: repo,
@@ -165,7 +171,7 @@ def test_trigger_scan_requires_token(client, monkeypatch):
 
 
 def test_trigger_scan_success(client, monkeypatch):
-    repo = _repo(access_token_encrypted="encrypted")
+    repo = _repo(github_installation_id=123)
     monkeypatch.setattr(
         "avanamy.api.routes.code_repositories.CodeRepoRepository.get_by_id",
         lambda _db, _id: repo,
@@ -175,10 +181,6 @@ def test_trigger_scan_success(client, monkeypatch):
         lambda *_args, **_kwargs: repo,
     )
 
-    class DummyEncryption:
-        def decrypt(self, _):
-            return "token"
-
     class DummyScanner:
         def __init__(self, _):
             pass
@@ -187,12 +189,12 @@ def test_trigger_scan_success(client, monkeypatch):
             return {"status": "success"}
 
     monkeypatch.setattr(
-        "avanamy.services.encryption_service.get_encryption_service",
-        lambda: DummyEncryption(),
-    )
-    monkeypatch.setattr(
         "avanamy.services.code_repo_scanner_service.CodeRepoScannerService",
         DummyScanner,
+    )
+    monkeypatch.setattr(
+        "avanamy.services.github_app_service.GitHubAppService.get_installation_token",
+        AsyncMock(return_value="token"),
     )
 
     resp = client.post(f"/code-repositories/{repo.id}/scan")

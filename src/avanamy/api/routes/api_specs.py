@@ -9,7 +9,7 @@ from uuid import UUID
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, Form, Query, UploadFile, File, HTTPException, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -76,8 +76,7 @@ class ApiSpecOut(BaseModel):
     original_file_s3_path: str
     parsed_schema: Dict[str, Any] | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # -----------------------------------------------------------------------------

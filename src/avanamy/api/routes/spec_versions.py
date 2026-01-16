@@ -6,7 +6,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from avanamy.db.database import SessionLocal
@@ -46,8 +46,7 @@ class SpecVersionOut(BaseModel):
     diff: dict | None = None  # Diff information showing changes from previous version
     summary: str | None = None  # AI-generated summary of changes
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------

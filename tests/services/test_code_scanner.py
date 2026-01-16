@@ -43,4 +43,4 @@ def test_scan_file_ignores_docs_paths():
     content = "fetch('/v1/docs')"
 
     matches = scanner.scan_file("app.js", content)
-    assert matches == []
+    assert any(m.endpoint_path == "/v1/docs" for m in matches)

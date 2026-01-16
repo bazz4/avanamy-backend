@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 import uuid
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch, AsyncMock
 
 
 def test_regenerate_docs_endpoint_success(client):
@@ -13,7 +13,7 @@ def test_regenerate_docs_endpoint_success(client):
         return_value=fake_spec,
     ) as mock_repo, patch(
         "avanamy.api.routes.api_specs.regenerate_all_docs_for_spec",
-        new=MagicMock(return_value=("docs/md.md", "docs/html.html")),
+        new=AsyncMock(return_value=("docs/md.md", "docs/html.html")),
     ) as mock_regen:
         resp = client.post(
             f"/api-specs/{spec_id}/regenerate-docs",
@@ -37,7 +37,7 @@ def test_regenerate_docs_endpoint_returns_400_on_generation_failure(client):
         return_value=fake_spec,
     ), patch(
         "avanamy.api.routes.api_specs.regenerate_all_docs_for_spec",
-        new=MagicMock(return_value=(None, None)),
+        new=AsyncMock(return_value=(None, None)),
     ):
         resp = client.post(
             f"/api-specs/{spec_id}/regenerate-docs",

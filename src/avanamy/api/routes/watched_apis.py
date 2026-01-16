@@ -11,7 +11,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, ConfigDict, HttpUrl
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -39,15 +39,16 @@ class CreateWatchedAPIRequest(BaseModel):
     spec_url: HttpUrl
     polling_frequency: str = "daily"  # hourly, daily, weekly
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "provider_id": "123e4567-e89b-12d3-a456-426614174000",
                 "api_product_id": "123e4567-e89b-12d3-a456-426614174001",
                 "spec_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml",
-                "polling_frequency": "daily"
+                "polling_frequency": "daily",
             }
         }
+    )
 
 
 class UpdateWatchedAPIRequest(BaseModel):
@@ -79,8 +80,7 @@ class WatchedAPIResponse(BaseModel):
     has_breaking_changes: bool = False
     latest_version_id: Optional[int] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Endpoints
 

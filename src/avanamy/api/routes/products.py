@@ -7,7 +7,7 @@ from uuid import UUID
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 
 from avanamy.db.database import get_db
@@ -83,8 +83,7 @@ class ApiProductResponse(BaseModel):
     has_breaking_changes: bool = False
     breaking_changes_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @field_validator('id', 'tenant_id', 'provider_id', 'created_by_user_id', 'updated_by_user_id', 'latest_spec_id', mode='before')
     @classmethod

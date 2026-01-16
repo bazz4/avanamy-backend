@@ -27,7 +27,7 @@ async def test_create_provider_success():
         description=" desc ",
     )
 
-    provider = await create_provider(payload, tenant_id="tenant-1", db=db)
+    provider = await create_provider(payload, user_id="user-1", tenant_id="tenant-1", db=db)
 
     assert provider.name == "Provider"
     assert provider.slug == "slug"
@@ -44,7 +44,7 @@ async def test_create_provider_conflict():
     payload = ProviderCreate(name="P", slug="slug", website=None, logo_url=None, description=None)
 
     with pytest.raises(HTTPException) as exc:
-        await create_provider(payload, tenant_id="tenant-1", db=db)
+        await create_provider(payload, user_id="user-1", tenant_id="tenant-1", db=db)
 
     assert exc.value.status_code == 400
 
@@ -58,6 +58,7 @@ async def test_update_provider_not_found():
         await update_provider(
             provider_id="p1",
             provider_data=ProviderUpdate(name="X"),
+            user_id="user-1",
             tenant_id="tenant-1",
             db=db,
         )
@@ -82,6 +83,7 @@ async def test_update_provider_slug_conflict():
         await update_provider(
             provider_id="p1",
             provider_data=ProviderUpdate(slug="new"),
+            user_id="user-1",
             tenant_id="tenant-1",
             db=db,
         )
@@ -110,12 +112,13 @@ async def test_update_provider_success():
     updated = await update_provider(
         provider_id="p1",
         provider_data=ProviderUpdate(name="New"),
+        user_id="user-1",
         tenant_id="tenant-1",
         db=db,
     )
 
     assert updated.name == "New"
-    assert provider.updated_by_user_id == "tenant-1"
+    assert provider.updated_by_user_id == "user-1"
 
 
 @pytest.mark.anyio

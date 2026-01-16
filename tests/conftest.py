@@ -2,7 +2,11 @@
 import pytest
 import uuid
 
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
+
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
 
@@ -22,6 +26,14 @@ import avanamy.models.alert_configuration
 import avanamy.models.alert_history
 import avanamy.models.endpoint_health
 import avanamy.models.code_repository
+import avanamy.models.organization_member
+import avanamy.models.organization_invitation
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(type_, compiler, **kw):
+    # SQLite doesn't support JSONB; compile to JSON for test databases.
+    return "JSON"
 
 
 @pytest.fixture(scope="session")
@@ -30,6 +42,7 @@ def engine():
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
     yield engine
@@ -108,10 +121,14 @@ def client(db, override_auth):
 
     # Apply override for get_db dependency used across all routes
     from avanamy.db.database import get_db as db_get_db
-    from avanamy.auth.clerk import get_current_tenant_id
+    from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
 
     app.dependency_overrides[db_get_db] = override_get_db
+    async def override_get_current_user_id():
+        return "user_test123"
+
     app.dependency_overrides[get_current_tenant_id] = override_auth
+    app.dependency_overrides[get_current_user_id] = override_get_current_user_id
 
     test_client = TestClient(app)
     try:

@@ -1,6 +1,7 @@
 # src/avanamy/services/api_product_delete_service.py
 
 import logging
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from avanamy.models.api_product import ApiProduct
@@ -79,11 +80,7 @@ def delete_api_product_fully(
     spec_ids = [s.id for s in specs]
 
     # 1. Delete documentation artifacts FIRST
-    version_ids = (
-        db.query(VersionHistory.id)
-        .filter(VersionHistory.api_spec_id.in_(spec_ids))
-        .subquery()
-    )
+    version_ids = select(VersionHistory.id).where(VersionHistory.api_spec_id.in_(spec_ids))
 
     db.query(DocumentationArtifact).filter(
         DocumentationArtifact.version_history_id.in_(version_ids)

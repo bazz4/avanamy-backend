@@ -1,6 +1,6 @@
 import pytest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 from github import GithubException
 
@@ -9,24 +9,41 @@ from avanamy.services.github_api_service import GitHubAPIService
 
 @pytest.mark.anyio
 async def test_list_repositories_success(monkeypatch):
-    repo = SimpleNamespace(
-        name="repo",
-        full_name="org/repo",
-        clone_url="https://github.com/org/repo.git",
-        default_branch="main",
-        private=True,
-    )
+    class DummyResponse:
+        def raise_for_status(self):
+            return None
 
-    user = SimpleNamespace(get_repos=MagicMock(return_value=[repo]))
-    github = SimpleNamespace(get_user=MagicMock(return_value=user))
+        def json(self):
+            return {
+                "repositories": [
+                    {
+                        "name": "repo",
+                        "full_name": "org/repo",
+                        "clone_url": "https://github.com/org/repo.git",
+                        "default_branch": "main",
+                        "private": True,
+                    }
+                ]
+            }
+
+    class DummyClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _url, headers=None):
+            return DummyResponse()
 
     monkeypatch.setattr(
-        "avanamy.services.github_api_service.Github",
-        MagicMock(return_value=github),
+        "avanamy.services.github_app_service.GitHubAppService.get_installation_token",
+        AsyncMock(return_value="token"),
     )
+    monkeypatch.setattr("httpx.AsyncClient", DummyClient)
 
     service = GitHubAPIService("token")
-    repos = await service.list_repositories()
+    repos = await service.list_repositories(installation_id=123)
 
     assert repos == [
         {
@@ -41,17 +58,32 @@ async def test_list_repositories_success(monkeypatch):
 
 @pytest.mark.anyio
 async def test_list_repositories_error(monkeypatch):
-    user = SimpleNamespace(get_repos=MagicMock(side_effect=GithubException(400, "boom", None)))
-    github = SimpleNamespace(get_user=MagicMock(return_value=user))
+    class DummyResponse:
+        def raise_for_status(self):
+            raise RuntimeError("boom")
+
+        def json(self):
+            return {}
+
+    class DummyClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _url, headers=None):
+            return DummyResponse()
 
     monkeypatch.setattr(
-        "avanamy.services.github_api_service.Github",
-        MagicMock(return_value=github),
+        "avanamy.services.github_app_service.GitHubAppService.get_installation_token",
+        AsyncMock(return_value="token"),
     )
+    monkeypatch.setattr("httpx.AsyncClient", DummyClient)
 
     service = GitHubAPIService("token")
     with pytest.raises(ValueError):
-        await service.list_repositories()
+        await service.list_repositories(installation_id=123)
 
 
 def test_clone_repository_auth_url(monkeypatch, tmp_path):

@@ -11,7 +11,7 @@ Endpoints:
 - DELETE /organizations/current/invitations/{invitation_id} - Revoke invitation
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -35,25 +35,27 @@ class InviteUserRequest(BaseModel):
     email: EmailStr
     role: str = "member"
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "email": "colleague@company.com",
-                "role": "developer"
+                "role": "developer",
             }
         }
+    )
 
 
 class UpdateMemberRoleRequest(BaseModel):
     """Request to update a member's role."""
     role: str
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
-                "role": "admin"
+                "role": "admin",
             }
         }
+    )
 
 
 class OrganizationMemberResponse(BaseModel):
@@ -67,8 +69,7 @@ class OrganizationMemberResponse(BaseModel):
     joined_at: Optional[datetime]
     invited_by_user_id: Optional[str]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class OrganizationInvitationResponse(BaseModel):
@@ -81,8 +82,7 @@ class OrganizationInvitationResponse(BaseModel):
     expires_at: datetime
     created_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ==================== Endpoints ====================

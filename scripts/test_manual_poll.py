@@ -19,9 +19,14 @@ from datetime import datetime, timezone, timedelta
 import subprocess
 import time
 import requests
+import os
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+if "pytest" in sys.modules:
+    import pytest
+    pytest.skip("Manual polling script is not a pytest test.", allow_module_level=True)
 
 from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")

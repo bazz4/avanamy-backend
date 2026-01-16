@@ -9,7 +9,7 @@ Handles:
 """
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import logging
 
@@ -149,7 +149,7 @@ class OrganizationService:
             invited_by_name=invited_by_name,
             token=token,
             status="pending",
-            expires_at=datetime.utcnow() + timedelta(days=7),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
             created_by_user_id=invited_by_user_id
         )
         
@@ -220,7 +220,7 @@ class OrganizationService:
             user_name=user_name,
             invited_by_user_id=invitation.invited_by_user_id,
             invited_at=invitation.created_at,
-            joined_at=datetime.utcnow(),
+            joined_at=datetime.now(timezone.utc),
             created_by_user_id=user_id
         )
         
@@ -228,7 +228,7 @@ class OrganizationService:
         
         # Mark invitation as accepted
         invitation.status = "accepted"
-        invitation.accepted_at = datetime.utcnow()
+        invitation.accepted_at = datetime.now(timezone.utc)
         
         self.db.commit()
         self.db.refresh(member)

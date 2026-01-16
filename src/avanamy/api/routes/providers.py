@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import uuid
 from fastapi import Body
 
@@ -50,8 +50,7 @@ class ProviderResponse(BaseModel):
     created_by_user_id: str | None = None
     updated_by_user_id: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
     @field_validator('id', 'tenant_id', 'created_by_user_id', 'updated_by_user_id', mode='before')
     @classmethod

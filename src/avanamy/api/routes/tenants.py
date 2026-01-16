@@ -6,7 +6,7 @@ from uuid import UUID
 
 from avanamy.db.database import SessionLocal
 from avanamy.models.tenant import Tenant
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -30,8 +30,7 @@ class TenantOut(BaseModel):
     name: str
     slug: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # --------------------------

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -322,7 +323,7 @@ async def test_get_original_spec_for_version_artifact_not_found(monkeypatch):
 
     fake_spec = SimpleNamespace(id=spec_id)
     from datetime import datetime
-    fake_version = SimpleNamespace(id=789, version=version_number, created_at=datetime.utcnow())
+    fake_version = SimpleNamespace(id=789, version=version_number, created_at=datetime.now(timezone.utc))
 
     query_index = {"count": 0}
 

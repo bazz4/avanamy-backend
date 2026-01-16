@@ -10,7 +10,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, HttpUrl
+from pydantic import BaseModel, ConfigDict, EmailStr, HttpUrl
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
@@ -38,17 +38,18 @@ class CreateAlertConfigRequest(BaseModel):
     alert_on_endpoint_recovery: bool = False
     enabled: bool = True
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "watched_api_id": "123e4567-e89b-12d3-a456-426614174000",
                 "alert_type": "email",
                 "destination": "alerts@company.com",
                 "alert_on_breaking_changes": True,
                 "alert_on_endpoint_failures": True,
-                "enabled": True
+                "enabled": True,
             }
         }
+    )
 
 
 class UpdateAlertConfigRequest(BaseModel):
@@ -76,8 +77,7 @@ class AlertConfigResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Endpoints

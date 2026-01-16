@@ -7,7 +7,7 @@ from sqlalchemy import Column, String, DateTime, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from avanamy.db.database import Base
 from avanamy.models.mixins import AuditMixin
@@ -56,7 +56,13 @@ class OrganizationInvitation(Base, AuditMixin):
     @property
     def is_expired(self) -> bool:
         """Check if invitation has expired."""
-        return datetime.utcnow() > self.expires_at
+        if self.expires_at is None:
+            return True
+
+        now = datetime.now(timezone.utc)
+        if self.expires_at.tzinfo is None:
+            return now.replace(tzinfo=None) > self.expires_at
+        return now > self.expires_at
     
     def __repr__(self):
         return f"<OrganizationInvitation(email={self.email}, tenant={self.tenant_id}, status={self.status})>"
