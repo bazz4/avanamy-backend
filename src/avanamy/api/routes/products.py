@@ -15,7 +15,7 @@ from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
 from avanamy.models.api_spec import ApiSpec
 from avanamy.services.api_product_delete_service import delete_api_product_fully
-from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.clerk import get_current_tenant_id
 
 from opentelemetry import trace
 from prometheus_client import Histogram, Counter
@@ -79,6 +79,9 @@ class ApiProductResponse(BaseModel):
     latest_spec_uploaded_at: str | None = None
    
     spec_count: int = 0
+    # Breaking changes info
+    has_breaking_changes: bool = False
+    breaking_changes_count: int = 0
 
     class Config:
         from_attributes = True
@@ -152,6 +155,40 @@ async def list_api_products(
                 has_specs='true' if spec_count > 0 else 'false'
             ).inc(spec_count)
             
+            # Check for breaking changes in any specs for this product
+            from avanamy.models.version_history import VersionHistory
+            breaking_specs_count = 0
+            if spec_count > 0:
+                # Check if any specs have breaking changes in their latest version
+                specs_with_breaking = db.query(VersionHistory).join(
+                    ApiSpec, VersionHistory.api_spec_id == ApiSpec.id
+                ).filter(
+                    ApiSpec.api_product_id == product.id
+                ).all()
+                
+                # Check each spec's latest version for breaking changes
+                spec_ids = [spec.id for spec in db.query(ApiSpec.id).filter(
+                    ApiSpec.api_product_id == product.id
+                ).all()]
+                
+                for spec_id in spec_ids:
+                    latest_version = db.query(VersionHistory).filter(
+                        VersionHistory.api_spec_id == spec_id
+                    ).order_by(VersionHistory.version.desc()).first()
+                    
+                    if latest_version and latest_version.diff:
+                        try:
+                            import json
+                            if isinstance(latest_version.diff, dict):
+                                diff_data = latest_version.diff
+                            else:
+                                diff_data = json.loads(latest_version.diff)
+                            
+                            if diff_data.get('breaking', False):
+                                breaking_specs_count += 1
+                        except:
+                            pass
+            
             product_dict = {
                 'id': product.id,
                 'tenant_id': product.tenant_id,
@@ -169,6 +206,8 @@ async def list_api_products(
                 'latest_spec_version': latest_spec.version if latest_spec else None,
                 'latest_spec_uploaded_at': latest_spec.created_at if latest_spec else None,
                 'spec_count': spec_count,
+                'has_breaking_changes': breaking_specs_count > 0,
+                'breaking_changes_count': breaking_specs_count,
             }
             result.append(ApiProductResponse(**product_dict))
         
@@ -229,7 +268,6 @@ async def get_api_product(
 @router.post("", response_model=ApiProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_api_product(
     product_data: ApiProductCreate,
-    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -269,8 +307,8 @@ async def create_api_product(
         name=product_data.name.strip(),
         slug=product_data.slug.strip(),
         description=description if description else None,
-        created_by_user_id=user_id,
-        updated_by_user_id=user_id
+        created_by_user_id=tenant_id,
+        updated_by_user_id=tenant_id
     )
     
     db.add(product)
@@ -299,7 +337,6 @@ async def create_api_product(
 async def update_api_product(
     product_id: str,
     product_data: ApiProductUpdate,
-    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -351,7 +388,7 @@ async def update_api_product(
         elif value is not None:
             setattr(product, field, value.strip() if isinstance(value, str) else value)
     
-    product.updated_by_user_id = user_id
+    product.updated_by_user_id = tenant_id
     
     db.commit()
     db.refresh(product)

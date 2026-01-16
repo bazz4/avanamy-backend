@@ -75,6 +75,9 @@ class WatchedAPIResponse(BaseModel):
     consecutive_failures: int
     status: str
     created_at: datetime
+    # Breaking changes info
+    has_breaking_changes: bool = False
+    latest_version_id: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -138,8 +141,33 @@ def list_watched_apis(
         ).order_by(WatchedAPI.created_at.desc()).all()
         
         # Convert to response format
+        from avanamy.models.version_history import VersionHistory
+        import json
+        
         result = []
         for watched_api, provider_name, product_name in watched_apis:
+            # Check for breaking changes in latest version
+            has_breaking = False
+            latest_version_id = None
+            
+            if watched_api.api_spec_id:
+                latest_version = db.query(VersionHistory).filter(
+                    VersionHistory.api_spec_id == watched_api.api_spec_id
+                ).order_by(VersionHistory.version.desc()).first()
+                
+                if latest_version:
+                    latest_version_id = latest_version.version
+                    if latest_version.diff:
+                        try:
+                            if isinstance(latest_version.diff, dict):
+                                diff_data = latest_version.diff
+                            else:
+                                diff_data = json.loads(latest_version.diff)
+                            
+                            has_breaking = diff_data.get('breaking', False)
+                        except:
+                            pass
+            
             api_dict = {
                 "id": watched_api.id,
                 "tenant_id": watched_api.tenant_id,
@@ -156,7 +184,9 @@ def list_watched_apis(
                 "last_version_detected": watched_api.last_version_detected,
                 "consecutive_failures": watched_api.consecutive_failures,
                 "status": watched_api.status,
-                "created_at": watched_api.created_at
+                "created_at": watched_api.created_at,
+                "has_breaking_changes": has_breaking,
+                "latest_version_id": latest_version_id
             }
             result.append(WatchedAPIResponse(**api_dict))
         
@@ -222,7 +252,6 @@ def update_watched_api(
         
         if request.status is not None:
             watched_api.status = request.status
-
         watched_api.updated_by_user_id = user_id
         
         db.commit()

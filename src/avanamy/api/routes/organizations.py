@@ -10,7 +10,7 @@ Endpoints:
 - PATCH /organizations/current/members/{user_id}/role - Update member role
 - DELETE /organizations/current/invitations/{invitation_id} - Revoke invitation
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -20,8 +20,10 @@ from datetime import datetime
 from avanamy.auth.clerk import get_current_user_id, get_current_tenant_id
 from avanamy.db.database import get_db
 from avanamy.services.organization_service import OrganizationService
+from avanamy.services.email_service import EmailService
 from avanamy.models.organization_member import OrganizationMember
 from avanamy.models.organization_invitation import OrganizationInvitation
+from avanamy.models.tenant import Tenant
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -103,6 +105,7 @@ def list_organization_members(
 @router.post("/current/invitations", response_model=OrganizationInvitationResponse, status_code=status.HTTP_201_CREATED)
 async def invite_user_to_organization(
     request: InviteUserRequest,
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
@@ -144,9 +147,17 @@ async def invite_user_to_organization(
             invited_by_name=inviter_name
         )
         
-        # TODO: Send email with invitation link
-        # from avanamy.services.email_service import send_invitation_email
-        # await send_invitation_email(invitation)
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        organization_name = tenant.name if tenant else tenant_id
+
+        email_service = EmailService()
+        background_tasks.add_task(
+            email_service.send_invitation_email,
+            to_email=invitation.email,
+            inviter_name=inviter_name,
+            organization_name=organization_name,
+            invitation_token=invitation.token
+        )
         
         return invitation
     except ValueError as e:
