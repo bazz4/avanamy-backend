@@ -14,6 +14,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 from avanamy.db.database import SessionLocal
 from avanamy.models.api_spec import ApiSpec
 from avanamy.models.version_history import VersionHistory
@@ -86,11 +88,12 @@ class ApiSpecOut(BaseModel):
 @router.post("/upload", response_model=ApiSpecOut)
 async def upload_api_spec(
     file: UploadFile = File(...),
-    api_product_id: UUID = Query(...),   # ⬅️ REQUIRED
-    provider_id: Optional[UUID] = Query(None),  # ⬅️ OPTIONAL
+    api_product_id: UUID = Query(...),
+    provider_id: Optional[UUID] = Query(None),
     name: Optional[str] = None,
     version: Optional[str] = None,
     description: Optional[str] = None,
+    _: None = Depends(require_permission(Permission.UPLOAD_SPEC)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -139,6 +142,7 @@ async def upload_new_api_spec_version(
     file: UploadFile = File(...),
     version: Optional[str] = None,
     description: Optional[str] = None,
+    _: None = Depends(require_permission(Permission.UPDATE_SPEC)),  # ADD
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
@@ -400,6 +404,7 @@ async def get_api_spec(
 @router.post("/{spec_id}/regenerate-docs")
 async def regenerate_docs(
     spec_id: UUID,
+    _: None = Depends(require_permission(Permission.REGENERATE_DOCS)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):

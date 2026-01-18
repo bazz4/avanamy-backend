@@ -19,6 +19,8 @@ from datetime import datetime
 from avanamy.db.database import get_db
 from avanamy.models.alert_configuration import AlertConfiguration
 from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 from opentelemetry import trace
 
 router = APIRouter(prefix="/alert-configs", tags=["alert-configs"])
@@ -85,7 +87,8 @@ class AlertConfigResponse(BaseModel):
 @router.post("", response_model=AlertConfigResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert_config(
     request: CreateAlertConfigRequest,
-    user_id: str = Depends(get_current_user_id),  
+    _: None = Depends(require_permission(Permission.CREATE_ALERT_CONFIG)),  # ADD
+    user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -176,7 +179,8 @@ async def get_alert_config(
 async def update_alert_config(
     config_id: UUID,
     request: UpdateAlertConfigRequest,
-    user_id: str = Depends(get_current_user_id),  
+    _: None = Depends(require_permission(Permission.UPDATE_ALERT_CONFIG)),  # ADD
+    user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -230,6 +234,7 @@ async def update_alert_config(
 @router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_alert_config(
     config_id: UUID,
+    _: None = Depends(require_permission(Permission.DELETE_ALERT_CONFIG)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):

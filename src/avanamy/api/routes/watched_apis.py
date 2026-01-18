@@ -18,6 +18,8 @@ from uuid import UUID
 from datetime import datetime
 
 from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 from avanamy.db.database import get_db
 from avanamy.models.watched_api import WatchedAPI
 from avanamy.models.provider import Provider
@@ -87,6 +89,7 @@ class WatchedAPIResponse(BaseModel):
 @router.post("", response_model=WatchedAPIResponse, status_code=status.HTTP_201_CREATED)
 def create_watched_api(
     request: CreateWatchedAPIRequest,
+    _: None = Depends(require_permission(Permission.CREATE_WATCHED_API)),  # ADD
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
@@ -219,6 +222,7 @@ def get_watched_api(
 def update_watched_api(
     watched_api_id: UUID,
     request: UpdateWatchedAPIRequest,
+    _: None = Depends(require_permission(Permission.UPDATE_WATCHED_API)),  # ADD
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
@@ -263,6 +267,7 @@ def update_watched_api(
 @router.delete("/{watched_api_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_watched_api(
     watched_api_id: UUID,
+    _: None = Depends(require_permission(Permission.DELETE_WATCHED_API)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -289,6 +294,7 @@ def delete_watched_api(
 @router.post("/{watched_api_id}/poll", response_model=dict)
 async def trigger_poll(
     watched_api_id: UUID,
+    _: None = Depends(require_permission(Permission.TRIGGER_POLL)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):

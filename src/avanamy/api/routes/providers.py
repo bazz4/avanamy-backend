@@ -13,6 +13,8 @@ from fastapi import Body
 from avanamy.db.database import get_db
 from avanamy.models.provider import Provider
 from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 
 router = APIRouter(prefix="/providers", tags=["providers"])
 
@@ -107,6 +109,7 @@ async def get_provider(
 @router.post("", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
 async def create_provider(
     provider_data: ProviderCreate,
+    _: None = Depends(require_permission(Permission.CREATE_PROVIDER)),  # ADD THIS LINE
     user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
@@ -153,6 +156,7 @@ async def create_provider(
 async def update_provider(
     provider_id: str,
     provider_data: ProviderUpdate,
+    _: None = Depends(require_permission(Permission.UPDATE_PROVIDER)),  
     user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
@@ -198,6 +202,7 @@ async def update_provider(
 @router.delete("/{provider_id}")
 async def delete_provider(
     provider_id: UUID,
+    _: None = Depends(require_permission(Permission.DELETE_PROVIDER)),  # ADD THIS LINE
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -236,6 +241,7 @@ async def delete_provider(
 async def update_provider_status(
     provider_id: UUID,
     status: str = Body(..., embed=True),
+    _: None = Depends(require_permission(Permission.UPDATE_PROVIDER)),  # ADD THIS LINE
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):

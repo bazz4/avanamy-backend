@@ -11,13 +11,15 @@ Endpoints:
 - DELETE /organizations/current/invitations/{invitation_id} - Revoke invitation
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 
 from avanamy.auth.clerk import get_current_user_id, get_current_tenant_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 from avanamy.db.database import get_db
 from avanamy.services.organization_service import OrganizationService
 from avanamy.services.email_service import EmailService
@@ -35,27 +37,25 @@ class InviteUserRequest(BaseModel):
     email: EmailStr
     role: str = "member"
     
-    model_config = ConfigDict(
-        json_schema_extra={
+    class Config:
+        json_schema_extra = {
             "example": {
                 "email": "colleague@company.com",
-                "role": "developer",
+                "role": "developer"
             }
         }
-    )
 
 
 class UpdateMemberRoleRequest(BaseModel):
     """Request to update a member's role."""
     role: str
     
-    model_config = ConfigDict(
-        json_schema_extra={
+    class Config:
+        json_schema_extra = {
             "example": {
-                "role": "admin",
+                "role": "admin"
             }
         }
-    )
 
 
 class OrganizationMemberResponse(BaseModel):
@@ -69,7 +69,8 @@ class OrganizationMemberResponse(BaseModel):
     joined_at: Optional[datetime]
     invited_by_user_id: Optional[str]
     
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 
 class OrganizationInvitationResponse(BaseModel):
@@ -82,7 +83,8 @@ class OrganizationInvitationResponse(BaseModel):
     expires_at: datetime
     created_at: datetime
     
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
 
 
 # ==================== Endpoints ====================
@@ -106,25 +108,18 @@ def list_organization_members(
 async def invite_user_to_organization(
     request: InviteUserRequest,
     background_tasks: BackgroundTasks,
+    _: None = Depends(require_permission(Permission.INVITE_MEMBER)),
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
     Invite a user to join the current organization.
+    Requires admin or owner role.
     
-    Only owners and admins can invite users.
     Invitation expires after 7 days.
     """
     service = OrganizationService(db)
-    
-    # Check if current user has permission to invite
-    user_role = service.get_user_role(user_id, tenant_id)
-    if user_role not in ["owner", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owners and admins can invite users"
-        )
     
     # Get inviter name from Clerk (optional, fallback to email)
     try:
@@ -169,25 +164,16 @@ async def invite_user_to_organization(
 
 @router.get("/current/invitations", response_model=List[OrganizationInvitationResponse])
 def list_pending_invitations(
+    _: None = Depends(require_permission(Permission.READ_INVITATIONS)),
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
     List pending invitations for the current organization.
-    
-    Only owners and admins can view invitations.
+    Requires admin or owner role.
     """
     service = OrganizationService(db)
-    
-    # Check permission
-    user_role = service.get_user_role(user_id, tenant_id)
-    if user_role not in ["owner", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owners and admins can view invitations"
-        )
-    
     invitations = service.get_pending_invitations(tenant_id)
     return invitations
 
@@ -232,25 +218,17 @@ async def accept_organization_invitation(
 @router.delete("/current/members/{member_user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_organization_member(
     member_user_id: str,
+    _: None = Depends(require_permission(Permission.REMOVE_MEMBER)),
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
     Remove a member from the current organization.
-    
-    Only owners and admins can remove members.
+    Requires admin or owner role.
     Cannot remove the owner.
     """
     service = OrganizationService(db)
-    
-    # Check permission
-    user_role = service.get_user_role(user_id, tenant_id)
-    if user_role not in ["owner", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owners and admins can remove members"
-        )
     
     try:
         service.remove_member(tenant_id, member_user_id, user_id)
@@ -265,25 +243,17 @@ def remove_organization_member(
 def update_member_role(
     member_user_id: str,
     request: UpdateMemberRoleRequest,
+    _: None = Depends(require_permission(Permission.CHANGE_MEMBER_ROLE)),
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
     Update a member's role in the organization.
-    
-    Only owners can change roles.
+    Requires owner role.
     Cannot change the owner's role.
     """
     service = OrganizationService(db)
-    
-    # Check permission - only owners can change roles
-    user_role = service.get_user_role(user_id, tenant_id)
-    if user_role != "owner":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owners can change member roles"
-        )
     
     try:
         service.update_member_role(tenant_id, member_user_id, request.role, user_id)
@@ -298,24 +268,16 @@ def update_member_role(
 @router.delete("/current/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_invitation(
     invitation_id: UUID,
+    _: None = Depends(require_permission(Permission.INVITE_MEMBER)),  # Same permission as invite
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
     """
     Revoke a pending invitation.
-    
-    Only owners and admins can revoke invitations.
+    Requires admin or owner role.
     """
     service = OrganizationService(db)
-    
-    # Check permission
-    user_role = service.get_user_role(user_id, tenant_id)
-    if user_role not in ["owner", "admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only owners and admins can revoke invitations"
-        )
     
     # Verify invitation belongs to this org
     invitation = db.query(OrganizationInvitation).filter(
@@ -336,3 +298,77 @@ def revoke_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+
+
+# ==================== User Permissions Endpoint ====================
+
+class UserPermissionsResponse(BaseModel):
+    """Response model for user permissions."""
+    user_id: str
+    tenant_id: str
+    role: Optional[str]
+    permissions: List[str]
+    
+    # Convenience flags for frontend
+    can_manage_providers: bool
+    can_manage_products: bool
+    can_upload_specs: bool
+    can_manage_watched_apis: bool
+    can_manage_code_repos: bool
+    can_manage_alerts: bool
+    can_manage_members: bool
+    can_change_roles: bool
+
+
+@router.get("/current/my-permissions", response_model=UserPermissionsResponse)
+def get_my_permissions(
+    user_id: str = Depends(get_current_user_id),
+    tenant_id: str = Depends(get_current_tenant_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the current user's role and permissions in the organization.
+    
+    Returns the role, list of permissions, and convenience boolean flags
+    that the frontend can use to show/hide UI elements.
+    """
+    from avanamy.auth.rbac import get_user_role
+    from avanamy.auth.permissions import (
+        get_role_permissions,
+        can_manage_providers,
+        can_manage_products,
+        can_upload_specs,
+        can_manage_watched_apis,
+        can_manage_code_repos,
+        can_manage_alerts,
+        can_manage_members,
+        can_change_roles,
+    )
+    
+    # Get user's role (handles both personal and org tenants)
+    service = OrganizationService(db)
+    role = service.get_user_role(user_id, tenant_id)
+    
+    # For personal tenants where user isn't in org_members, default to owner
+    from avanamy.models.tenant import Tenant
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if tenant and not tenant.is_organization and role is None:
+        role = "owner"
+    
+    # Get all permissions for this role
+    permissions = get_role_permissions(role)
+    
+    return UserPermissionsResponse(
+        user_id=user_id,
+        tenant_id=tenant_id,
+        role=role,
+        permissions=[p.value for p in permissions],
+        can_manage_providers=can_manage_providers(role),
+        can_manage_products=can_manage_products(role),
+        can_upload_specs=can_upload_specs(role),
+        can_manage_watched_apis=can_manage_watched_apis(role),
+        can_manage_code_repos=can_manage_code_repos(role),
+        can_manage_alerts=can_manage_alerts(role),
+        can_manage_members=can_manage_members(role),
+        can_change_roles=can_change_roles(role),
+    )

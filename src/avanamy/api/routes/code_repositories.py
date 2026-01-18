@@ -14,6 +14,8 @@ from opentelemetry import trace
 
 from avanamy.db.database import get_db
 from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
 from avanamy.repositories.code_repo_repository import CodeRepoRepository
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,7 @@ class CodeRepositoryDetailResponse(CodeRepositoryResponse):
 @router.post("", response_model=CodeRepositoryResponse, status_code=201)
 def create_code_repository(
     request: CreateCodeRepositoryRequest,
+    _: None = Depends(require_permission(Permission.CREATE_CODE_REPO)),  # ADD
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
     tenant_id: str = Depends(get_current_tenant_id),
@@ -233,6 +236,7 @@ def get_code_repository(
 def update_code_repository(
     code_repository_id: UUID,
     request: UpdateCodeRepositoryRequest,
+    _: None = Depends(require_permission(Permission.UPDATE_CODE_REPO)),  # ADD
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id), 
     tenant_id: str = Depends(get_current_tenant_id),
@@ -287,6 +291,7 @@ def update_code_repository(
 @router.delete("/{code_repository_id}", status_code=204)
 def delete_code_repository(
     code_repository_id: UUID,
+    _: None = Depends(require_permission(Permission.DELETE_CODE_REPO)),  # ADD
     db: Session = Depends(get_db),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
@@ -313,6 +318,7 @@ def delete_code_repository(
 def connect_github(
     code_repository_id: UUID,
     request: ConnectGitHubRequest,
+    _: None = Depends(require_permission(Permission.UPDATE_CODE_REPO)),  # ADD
     db: Session = Depends(get_db),
     tenant_id: str = Depends(get_current_tenant_id),
 ):
@@ -361,6 +367,7 @@ def connect_github(
 async def trigger_scan(
     code_repository_id: UUID,
     background_tasks: BackgroundTasks,
+    _: None = Depends(require_permission(Permission.TRIGGER_SCAN)),  # ADD
     db: Session = Depends(get_db),
     tenant_id: str = Depends(get_current_tenant_id),
 ):

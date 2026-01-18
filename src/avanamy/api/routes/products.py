@@ -15,7 +15,10 @@ from avanamy.models.api_product import ApiProduct
 from avanamy.models.provider import Provider
 from avanamy.models.api_spec import ApiSpec
 from avanamy.services.api_product_delete_service import delete_api_product_fully
-from avanamy.auth.clerk import get_current_tenant_id
+from avanamy.auth.clerk import get_current_tenant_id, get_current_user_id
+from avanamy.auth.rbac import require_permission
+from avanamy.auth.permissions import Permission
+
 
 from opentelemetry import trace
 from prometheus_client import Histogram, Counter
@@ -267,6 +270,8 @@ async def get_api_product(
 @router.post("", response_model=ApiProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_api_product(
     product_data: ApiProductCreate,
+    _: None = Depends(require_permission(Permission.CREATE_PRODUCT)),  
+    user_id: str = Depends(get_current_user_id),  
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -306,8 +311,8 @@ async def create_api_product(
         name=product_data.name.strip(),
         slug=product_data.slug.strip(),
         description=description if description else None,
-        created_by_user_id=tenant_id,
-        updated_by_user_id=tenant_id
+        created_by_user_id=user_id,
+        updated_by_user_id=user_id
     )
     
     db.add(product)
@@ -336,6 +341,8 @@ async def create_api_product(
 async def update_api_product(
     product_id: str,
     product_data: ApiProductUpdate,
+    _: None = Depends(require_permission(Permission.UPDATE_PRODUCT)),  
+    user_id: str = Depends(get_current_user_id),  
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db)
 ):
@@ -387,7 +394,7 @@ async def update_api_product(
         elif value is not None:
             setattr(product, field, value.strip() if isinstance(value, str) else value)
     
-    product.updated_by_user_id = tenant_id
+    product.updated_by_user_id = user_id
     
     db.commit()
     db.refresh(product)
@@ -451,6 +458,7 @@ async def update_api_product(
 async def update_product_status(
     product_id: UUID,
     status: str = Body(..., embed=True),
+    _: None = Depends(require_permission(Permission.UPDATE_PRODUCT)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
@@ -577,6 +585,7 @@ async def get_product_specs(
 @router.delete("/{api_product_id}", status_code=204)
 def delete_api_product(
     api_product_id: str,
+    _: None = Depends(require_permission(Permission.DELETE_PRODUCT)),  # ADD
     tenant_id: str = Depends(get_current_tenant_id),
     db: Session = Depends(get_db),
 ):
